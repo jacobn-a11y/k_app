@@ -92,6 +92,7 @@ protocol SRSEngineProtocol: Sendable {
     func predictRecallProbability(item: ReviewItem, at date: Date) -> Double
     func scheduleNextReview(item: ReviewItem, wasCorrect: Bool, responseTime: TimeInterval) -> Date
     func getDueItems(for userId: UUID, from items: [ReviewItem], limit: Int) -> [ReviewItem]
+    func getSessionRetryItems(from sessionItems: [(item: ReviewItem, wasCorrect: Bool)]) -> [ReviewItem]
 }
 
 // MARK: - Learner Model Service

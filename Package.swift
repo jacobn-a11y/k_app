@@ -24,7 +24,22 @@ let package = Package(
                 "Resources/HangulStrokeData",
                 "App/HallyuApp.swift",
                 "App/ContentView.swift",
-                "Features"
+                // SwiftUI views excluded from SPM library target
+                "Features/Hangul/StrokeOrderView.swift",
+                "Features/Hangul/JamoDetailView.swift",
+                "Features/Hangul/HangulLessonView.swift",
+                "Features/Hangul/SyllableBlockBuilderView.swift",
+                "Features/Hangul/SpotInTheWildView.swift",
+                "Features/Onboarding",
+                "Features/MediaLibrary",
+                "Features/MediaLesson",
+                "Features/Pronunciation",
+                "Features/Review/FlashcardView.swift",
+                "Features/Review/ReviewSessionView.swift",
+                "Features/Review/ReviewStatsView.swift",
+                "Features/Progress",
+                "Features/DailyPlan",
+                "Features/Settings",
             ]
         ),
         .testTarget(

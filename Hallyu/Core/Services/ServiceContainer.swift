@@ -118,6 +118,10 @@ final class MockSRSEngine: SRSEngineProtocol, @unchecked Sendable {
     func getDueItems(for userId: UUID, from items: [ReviewItem], limit: Int) -> [ReviewItem] {
         Array(items.filter { $0.nextReviewAt <= Date() }.prefix(limit))
     }
+
+    func getSessionRetryItems(from sessionItems: [(item: ReviewItem, wasCorrect: Bool)]) -> [ReviewItem] {
+        sessionItems.filter { !$0.wasCorrect }.map { $0.item }
+    }
 }
 
 final class MockLearnerModelService: LearnerModelServiceProtocol, @unchecked Sendable {
