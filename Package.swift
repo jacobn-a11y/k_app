@@ -23,8 +23,6 @@ let package = Package(
                 "Resources/Audio",
                 "Resources/HangulStrokeData",
                 "App/HallyuApp.swift",
-                "App/ContentView.swift",
-                "Features"
             ]
         ),
         .testTarget(
