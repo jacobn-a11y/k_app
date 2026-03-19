@@ -67,7 +67,7 @@ struct HangulLessonView: View {
             Spacer()
 
             Image(systemName: "star.fill")
-                .font(.system(size: 60))
+                .scaledFont(size: 60)
                 .foregroundStyle(.yellow)
 
             Text("Lesson Complete!")

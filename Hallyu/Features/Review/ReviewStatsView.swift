@@ -11,7 +11,7 @@ struct ReviewStatsView: View {
             // Header
             VStack(spacing: 8) {
                 Image(systemName: headerIcon)
-                    .font(.system(size: 56))
+                    .scaledFont(size: 56)
                     .foregroundStyle(headerColor)
 
                 Text(headerMessage)

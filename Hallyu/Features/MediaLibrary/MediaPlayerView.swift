@@ -182,7 +182,7 @@ struct MediaPlayerView: View {
                 .overlay {
                     VStack {
                         Image(systemName: "play.circle.fill")
-                            .font(.system(size: 48))
+                            .scaledFont(size: 48)
                             .foregroundStyle(.white.opacity(0.7))
                         Text("Video Player")
                             .font(.caption)
@@ -310,7 +310,7 @@ struct MediaPlayerView: View {
 
                 Button { viewModel.togglePlayback() } label: {
                     Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 44))
+                        .scaledFont(size: 44)
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }

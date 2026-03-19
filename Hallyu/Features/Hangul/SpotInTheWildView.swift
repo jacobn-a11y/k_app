@@ -122,7 +122,7 @@ struct SpotInTheWildView: View {
                     .font(.headline)
                 HStack(spacing: 8) {
                     Text(String(viewModel.task.targetJamo))
-                        .font(.system(size: 36, weight: .bold))
+                        .scaledFont(size: 36, weight: .bold)
                         .foregroundStyle(.blue)
                     Text("in this image!")
                         .font(.headline)

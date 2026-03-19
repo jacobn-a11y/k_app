@@ -21,7 +21,7 @@ struct LessonSummaryView: View {
     private var headerSection: some View {
         VStack(spacing: 12) {
             Image(systemName: "star.circle.fill")
-                .font(.system(size: 64))
+                .scaledFont(size: 64)
                 .foregroundStyle(.yellow)
 
             Text("Lesson Complete!")

@@ -146,7 +146,7 @@ struct ComprehensionCheckView: View {
             Spacer()
 
             Image(systemName: "brain.head.profile")
-                .font(.system(size: 56))
+                .scaledFont(size: 56)
                 .foregroundStyle(.accentColor)
 
             Text("Comprehension Check Complete!")

@@ -97,7 +97,7 @@ struct ShadowingView: View {
             } label: {
                 HStack {
                     Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                        .font(.system(size: 32))
+                        .scaledFont(size: 32)
                     Text(isRecording ? "Stop Recording" : "Record Your Voice")
                         .fontWeight(.medium)
                 }
@@ -242,7 +242,7 @@ struct ShadowingView: View {
             Spacer()
 
             Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 64))
+                .scaledFont(size: 64)
                 .foregroundStyle(.accentColor)
 
             Text("Shadowing Complete!")

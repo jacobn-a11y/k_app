@@ -142,7 +142,7 @@ struct VocabularyPreTeachView: View {
             Spacer()
 
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
+                .scaledFont(size: 64)
                 .foregroundStyle(.green)
 
             Text("Vocabulary Preview Complete!")

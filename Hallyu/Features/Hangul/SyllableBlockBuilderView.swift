@@ -150,7 +150,7 @@ struct SyllableBlockBuilderView: View {
                     Text("Build this character:")
                         .font(.headline)
                     Text(String(target))
-                        .font(.system(size: 60, weight: .bold))
+                        .scaledFont(size: 60, weight: .bold)
                 }
             }
 
@@ -234,7 +234,7 @@ struct SyllableBlockBuilderView: View {
         VStack {
             if let char = viewModel.composedCharacter {
                 Text(String(char))
-                    .font(.system(size: 72, weight: .bold))
+                    .scaledFont(size: 72, weight: .bold)
                     .frame(width: 100, height: 100)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
@@ -242,7 +242,7 @@ struct SyllableBlockBuilderView: View {
                     )
             } else {
                 Text("?")
-                    .font(.system(size: 72, weight: .bold))
+                    .scaledFont(size: 72, weight: .bold)
                     .foregroundStyle(.gray.opacity(0.3))
                     .frame(width: 100, height: 100)
                     .background(
@@ -267,7 +267,7 @@ struct SyllableBlockBuilderView: View {
 
                 if let jamo = jamo {
                     Text(String(jamo.character))
-                        .font(.system(size: 32, weight: .bold))
+                        .scaledFont(size: 32, weight: .bold)
                         .onTapGesture {
                             viewModel.removeJamo(from: position)
                         }
@@ -289,7 +289,7 @@ struct SyllableBlockBuilderView: View {
 
     private func jamoTile(_ jamo: JamoEntry) -> some View {
         Text(String(jamo.character))
-            .font(.system(size: 24, weight: .medium))
+            .scaledFont(size: 24, weight: .medium)
             .frame(width: 48, height: 48)
             .background(Color(.tertiarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 8))

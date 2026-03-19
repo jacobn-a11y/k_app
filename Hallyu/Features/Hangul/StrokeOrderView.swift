@@ -25,7 +25,7 @@ struct StrokeOrderView: View {
         VStack(spacing: 16) {
             // Character display
             Text(String(character))
-                .font(.system(size: 32, weight: .bold))
+                .scaledFont(size: 32, weight: .bold)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Jamo character \(String(character))")
 

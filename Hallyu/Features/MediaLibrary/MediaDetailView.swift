@@ -40,7 +40,7 @@ struct MediaDetailView: View {
                 .frame(height: 200)
                 .overlay {
                     Image(systemName: contentTypeIcon)
-                        .font(.system(size: 48))
+                        .scaledFont(size: 48)
                         .foregroundStyle(.white.opacity(0.5))
                 }
 

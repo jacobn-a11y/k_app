@@ -116,7 +116,7 @@ struct PlacementTestView: View {
                 Spacer().frame(height: 20)
 
                 Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 60))
+                    .scaledFont(size: 60)
                     .foregroundStyle(.blue)
 
                 Text("Placement Complete!")
@@ -129,7 +129,7 @@ struct PlacementTestView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Text(viewModel.estimatedLevel)
-                        .font(.system(size: 48, weight: .bold))
+                        .scaledFont(size: 48, weight: .bold)
                         .foregroundStyle(.blue)
                 }
                 .padding()

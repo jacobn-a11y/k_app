@@ -66,7 +66,7 @@ struct ReviewTabView: View {
     private var emptyReviewState: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
+                .scaledFont(size: 48)
                 .foregroundStyle(.green)
                 .accessibilityHidden(true)
             Text("All caught up!")
@@ -119,7 +119,7 @@ struct ProgressTabView: View {
                 .accessibilityAddTraits(.isHeader)
 
             Text(appState.currentCEFRLevel.rawValue)
-                .font(.system(size: 48, weight: .bold))
+                .scaledFont(size: 48, weight: .bold)
                 .accessibilityLabel("CEFR level \(appState.currentCEFRLevel.rawValue)")
 
             Text(cefrDescription)

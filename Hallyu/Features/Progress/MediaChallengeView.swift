@@ -297,7 +297,7 @@ struct MediaChallengeView: View {
             Spacer()
 
             Image(systemName: "trophy.fill")
-                .font(.system(size: 60))
+                .scaledFont(size: 60)
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
 
@@ -356,7 +356,7 @@ struct MediaChallengeView: View {
                     .frame(height: 200)
                     .overlay {
                         Image(systemName: "play.circle.fill")
-                            .font(.system(size: 48))
+                            .scaledFont(size: 48)
                             .foregroundStyle(.secondary)
                     }
                     .accessibilityLabel("Media content: \(content.title)")
