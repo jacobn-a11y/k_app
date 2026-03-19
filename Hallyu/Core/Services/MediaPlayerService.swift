@@ -2,84 +2,57 @@ import AVFoundation
 import Foundation
 
 final class AVMediaPlayerService: MediaPlayerServiceProtocol, @unchecked Sendable {
-    private let stateQueue = DispatchQueue(label: "com.hallyu.media-player-state")
     private var player: AVPlayer?
-    private var _currentTime: Double = 0
-    private var _duration: Double = 0
-    private var _isPlaying: Bool = false
+    private var preferredRate: Float = 1.0
+
+    var avPlayer: AVPlayer? {
+        player
+    }
 
     var currentTime: Double {
-        stateQueue.sync { _currentTime }
+        guard let seconds = player?.currentTime().seconds, seconds.isFinite else { return 0 }
+        return seconds
     }
 
     var duration: Double {
-        stateQueue.sync { _duration }
+        guard let seconds = player?.currentItem?.duration.seconds, seconds.isFinite else { return 0 }
+        return seconds
     }
 
     var isPlaying: Bool {
-        stateQueue.sync { _isPlaying }
+        (player?.rate ?? 0) > 0
     }
 
     func loadMedia(url: URL) async throws {
-        let asset = AVURLAsset(url: url)
-        let duration = try await asset.load(.duration)
-
-        await MainActor.run {
-            let item = AVPlayerItem(asset: asset)
-            if player == nil {
-                player = AVPlayer(playerItem: item)
-            } else {
-                player?.replaceCurrentItem(with: item)
-            }
-        }
-
-        stateQueue.sync {
-            _duration = duration.seconds.isFinite ? duration.seconds : 0
-            _currentTime = 0
-            _isPlaying = false
-        }
+        player = AVPlayer(url: url)
     }
 
     func play() async {
-        await MainActor.run {
-            player?.play()
-        }
-
-        stateQueue.sync {
-            _isPlaying = true
+        guard let player else { return }
+        if preferredRate == 1.0 {
+            player.play()
+        } else {
+            player.playImmediately(atRate: preferredRate)
         }
     }
 
     func pause() async {
-        await MainActor.run {
-            player?.pause()
-        }
-
-        stateQueue.sync {
-            _isPlaying = false
-        }
+        player?.pause()
     }
 
     func seek(to timeSeconds: Double) async {
-        let target = max(0, timeSeconds)
-        await MainActor.run {
-            let cmTime = CMTime(seconds: target, preferredTimescale: 600)
-            player?.seek(to: cmTime)
-        }
-
-        stateQueue.sync {
-            _currentTime = target
-        }
+        let clamped = max(0, timeSeconds)
+        let time = CMTime(seconds: clamped, preferredTimescale: 600)
+        await player?.seek(to: time)
     }
 
     func setPlaybackRate(_ rate: Float) async {
-        await MainActor.run {
-            guard let player else { return }
-            if player.timeControlStatus == .playing {
-                player.rate = rate
-            } else {
-                player.currentItem?.audioTimePitchAlgorithm = .timeDomain
-            }
+        guard rate > 0 else { return }
+        preferredRate = rate
+        guard isPlaying else { return }
+        player?.rate = rate
+        if let player, player.rate == 0 {
+            player.playImmediately(atRate: rate)
         }
     }
 }

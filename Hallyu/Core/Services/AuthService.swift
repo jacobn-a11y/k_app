@@ -11,6 +11,7 @@ enum AuthError: Error, LocalizedError {
     case sessionExpired
     case notAuthenticated
     case appleSignInFailed
+    case appleIdentityTokenMissing
     case unknown(String)
 
     var errorDescription: String? {
@@ -22,6 +23,7 @@ enum AuthError: Error, LocalizedError {
         case .sessionExpired: return "Your session has expired. Please sign in again."
         case .notAuthenticated: return "You are not signed in."
         case .appleSignInFailed: return "Sign in with Apple failed."
+        case .appleIdentityTokenMissing: return "Apple ID token unavailable. Complete native Apple sign-in before exchanging session."
         case .unknown(let msg): return msg
         }
     }
@@ -71,17 +73,13 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     private var _currentSession: AuthSession?
     private let sessionKey = "com.hallyu.authSession"
     private var refreshTask: Task<Void, Never>?
-    private let sessionLock = NSLock()
 
-    var currentSession: AuthSession? {
-        sessionLock.lock()
-        defer { sessionLock.unlock() }
-        return _currentSession
-    }
+    var currentSession: AuthSession? { _currentSession }
+    var isAuthenticated: Bool { _currentSession != nil && !isSessionExpired }
 
-    var isAuthenticated: Bool {
-        guard let session = currentSession else { return false }
-        return session.expiresAt > Date()
+    private var isSessionExpired: Bool {
+        guard let session = _currentSession else { return true }
+        return session.expiresAt < Date()
     }
 
     init(apiClient: APIClient) {
@@ -98,7 +96,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     private func startProactiveRefresh() {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self = self, let session = self.currentSession else {
+                guard let self = self, let session = self._currentSession else {
                     try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
                     continue
                 }
@@ -114,21 +112,29 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     // MARK: - Sign In with Apple
 
     func signInWithApple() async throws -> AuthSession {
-        // In a real implementation, this would coordinate with ASAuthorizationController
-        // to get an Apple ID credential, then exchange it with Supabase.
-        let body: [String: String] = ["provider": "apple"]
-        let bodyData = try JSONSerialization.data(withJSONObject: body)
+        guard let idToken = configuredAppleIdentityToken() else {
+            throw AuthError.appleIdentityTokenMissing
+        }
+        let nonce = ProcessInfo.processInfo.environment["APPLE_NONCE"]?.trimmedNonEmpty
+        return try await signInWithApple(idToken: idToken, nonce: nonce)
+    }
 
+    func signInWithApple(idToken: String, nonce: String?) async throws -> AuthSession {
+        guard let normalizedToken = idToken.trimmedNonEmpty else {
+            throw AuthError.appleIdentityTokenMissing
+        }
+
+        let body = AppleSignInRequest(provider: "apple", idToken: normalizedToken, nonce: nonce?.trimmedNonEmpty)
         let request = try APIRequest(
             path: "/auth/v1/token",
             method: .post,
             queryItems: [URLQueryItem(name: "grant_type", value: "id_token")],
-            body: bodyData
+            body: body
         )
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        setCurrentSession(authSession)
+        _currentSession = authSession
         persistSession(authSession)
         return authSession
     }
@@ -157,7 +163,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        setCurrentSession(authSession)
+        _currentSession = authSession
         persistSession(authSession)
         return authSession
     }
@@ -178,7 +184,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        setCurrentSession(authSession)
+        _currentSession = authSession
         persistSession(authSession)
         return authSession
     }
@@ -186,7 +192,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     // MARK: - Sign Out
 
     func signOut() async throws {
-        if let token = currentSession?.accessToken {
+        if let token = _currentSession?.accessToken {
             let request = try APIRequest(
                 path: "/auth/v1/logout",
                 method: .post,
@@ -195,14 +201,14 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
             )
             _ = try? await apiClient.sendRaw(request)
         }
-        setCurrentSession(nil)
+        _currentSession = nil
         clearPersistedSession()
     }
 
     // MARK: - Refresh
 
     func refreshSession() async throws -> AuthSession {
-        guard let session = currentSession else {
+        guard let session = _currentSession else {
             throw AuthError.notAuthenticated
         }
 
@@ -215,7 +221,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        setCurrentSession(authSession)
+        _currentSession = authSession
         persistSession(authSession)
         return authSession
     }
@@ -237,10 +243,8 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
         KeychainHelper.delete(forKey: sessionKey)
     }
 
-    private func setCurrentSession(_ session: AuthSession?) {
-        sessionLock.lock()
-        _currentSession = session
-        sessionLock.unlock()
+    private func configuredAppleIdentityToken() -> String? {
+        ProcessInfo.processInfo.environment["APPLE_ID_TOKEN"]?.trimmedNonEmpty
     }
 }
 
@@ -270,4 +274,23 @@ struct AuthUserResponse: Codable {
 struct EmailAuthRequest: Codable {
     let email: String
     let password: String
+}
+
+private struct AppleSignInRequest: Codable {
+    let provider: String
+    let idToken: String
+    let nonce: String?
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case idToken = "id_token"
+        case nonce
+    }
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }

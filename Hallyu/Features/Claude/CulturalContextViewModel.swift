@@ -21,11 +21,16 @@ final class CulturalContextViewModel {
     private(set) var savedToCollection: Bool = false
 
     let claudeService: ClaudeServiceProtocol
+    private let subscriptionTier: AppState.SubscriptionTier
 
     // MARK: - Init
 
-    init(claudeService: ClaudeServiceProtocol) {
+    init(
+        claudeService: ClaudeServiceProtocol,
+        subscriptionTier: AppState.SubscriptionTier = .core
+    ) {
         self.claudeService = claudeService
+        self.subscriptionTier = subscriptionTier
     }
 
     // MARK: - Actions
@@ -35,6 +40,14 @@ final class CulturalContextViewModel {
         self.mediaContext = mediaContext
         self.response = nil
         self.savedToCollection = false
+
+        do {
+            try await claudeService.checkTierAllowed(tier: subscriptionTier)
+        } catch {
+            phase = .error(claudeErrorMessage(for: error))
+            return
+        }
+
         phase = .loading
 
         do {
@@ -70,5 +83,12 @@ final class CulturalContextViewModel {
 
     var hasResponse: Bool {
         response != nil
+    }
+
+    private func claudeErrorMessage(for error: Error) -> String {
+        if case ClaudeServiceError.tierLimitReached = error {
+            return "Daily interaction limit reached for your subscription tier. Upgrade to continue."
+        }
+        return error.localizedDescription
     }
 }

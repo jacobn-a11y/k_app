@@ -7,17 +7,20 @@ struct DailyPlanViewModelTests {
 
     private let userId = UUID()
 
-    private func makeViewModel() -> DailyPlanViewModel {
+    private func makeViewModel(
+        planGenerator: PlanGeneratorServiceProtocol = MockPlanGenerator()
+    ) -> DailyPlanViewModel {
         DailyPlanViewModel(
-            planGenerator: MockPlanGenerator(),
+            planGenerator: planGenerator,
             srsEngine: MockSRSEngine(),
             learnerModel: MockLearnerModelService()
         )
     }
 
-    private func makeProfile(dailyGoalMinutes: Int = 15) -> LearnerProfile {
+    private func makeProfile(userId: UUID? = nil, dailyGoalMinutes: Int = 15) -> LearnerProfile {
+        let resolvedUserId = userId ?? self.userId
         LearnerProfile(
-            userId: userId,
+            userId: resolvedUserId,
             cefrLevel: "A1",
             hangulCompleted: true,
             dailyGoalMinutes: dailyGoalMinutes
@@ -70,6 +73,41 @@ struct DailyPlanViewModelTests {
             studySessions: []
         )
         #expect(vm.overdueReviewCount == 3)
+    }
+
+    @Test("loadPlan scopes inputs to the active user")
+    func loadPlanScopesInputs() {
+        let generator = RecordingPlanGenerator()
+        let vm = makeViewModel(planGenerator: generator)
+        let otherUser = UUID()
+
+        let currentProfile = makeProfile(userId: userId)
+        let mixedReviewItems = [
+            ReviewItem(userId: userId, itemType: "vocabulary", itemId: UUID(), nextReviewAt: Date().addingTimeInterval(-3600)),
+            ReviewItem(userId: otherUser, itemType: "vocabulary", itemId: UUID(), nextReviewAt: Date().addingTimeInterval(-3600)),
+        ]
+        let mixedMasteries = [
+            SkillMastery(userId: userId, skillType: "reading", skillId: "reading_1", accuracy: 0.8),
+            SkillMastery(userId: otherUser, skillType: "reading", skillId: "reading_2", accuracy: 0.1),
+        ]
+        let mixedSessions = [
+            StudySession(userId: userId, sessionType: "review", durationSeconds: 600, startedAt: Date(), completedAt: Date()),
+            StudySession(userId: otherUser, sessionType: "review", durationSeconds: 600, startedAt: Date(), completedAt: Date()),
+        ]
+
+        vm.loadPlan(
+            profile: currentProfile,
+            reviewItems: mixedReviewItems,
+            mediaContent: [],
+            skillMasteries: mixedMasteries,
+            studySessions: mixedSessions
+        )
+
+        #expect(generator.lastDueReviewCount == 1)
+        #expect(generator.lastSkillMasteryCount == 1)
+        #expect(generator.lastSessionCount == 1)
+        #expect(vm.overdueReviewCount == 1)
+        #expect(vm.streak == 1)
     }
 
     // MARK: - Complete Activity
@@ -272,7 +310,7 @@ struct DailyPlanViewModelTests {
 
 // MARK: - Mocks
 
-private final class MockPlanGenerator: PlanGeneratorServiceProtocol {
+private final class MockPlanGenerator: PlanGeneratorServiceProtocol, @unchecked Sendable {
     func generatePlan(
         profile: LearnerProfile,
         dueReviewItems: [ReviewItem],
@@ -304,7 +342,7 @@ private final class MockPlanGenerator: PlanGeneratorServiceProtocol {
     }
 }
 
-private final class MockSRSEngine: SRSEngineProtocol {
+private final class MockSRSEngine: SRSEngineProtocol, @unchecked Sendable {
     func predictRecallProbability(item: ReviewItem, at date: Date) -> Double { 0.5 }
     func scheduleNextReview(item: ReviewItem, wasCorrect: Bool, responseTime: TimeInterval) -> Date {
         Date().addingTimeInterval(86400)
@@ -314,5 +352,40 @@ private final class MockSRSEngine: SRSEngineProtocol {
     }
     func getSessionRetryItems(from sessionItems: [(item: ReviewItem, wasCorrect: Bool)]) -> [ReviewItem] {
         sessionItems.filter { !$0.wasCorrect }.map { $0.item }
+    }
+}
+
+private final class RecordingPlanGenerator: PlanGeneratorServiceProtocol, @unchecked Sendable {
+    private(set) var lastDueReviewCount: Int?
+    private(set) var lastSkillMasteryCount: Int?
+    private(set) var lastSessionCount: Int?
+
+    func generatePlan(
+        profile: LearnerProfile,
+        dueReviewItems: [ReviewItem],
+        availableMedia: [MediaContent],
+        skillMasteries: [SkillMastery],
+        todaySessions: [StudySession]
+    ) -> DailyPlan {
+        lastDueReviewCount = dueReviewItems.count
+        lastSkillMasteryCount = skillMasteries.count
+        lastSessionCount = todaySessions.count
+
+        let activities = [
+            PlanActivity(
+                type: .srsReview,
+                title: "Review",
+                subtitle: "Review items",
+                estimatedMinutes: 5,
+                reviewItemCount: dueReviewItems.count
+            )
+        ]
+
+        return DailyPlan(
+            activities: activities,
+            totalMinutes: 5,
+            goalMinutes: profile.dailyGoalMinutes,
+            date: Date()
+        )
     }
 }

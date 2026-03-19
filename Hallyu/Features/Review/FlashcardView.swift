@@ -7,6 +7,7 @@ struct FlashcardView: View {
     var onTap: (() -> Void)?
 
     @State private var rotation: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -20,14 +21,25 @@ struct FlashcardView: View {
                 .rotation3DEffect(.degrees(rotation), axis: (x: 0, y: 1, z: 0))
                 .opacity(rotation < -90 || rotation > 90 ? 0 : 1)
         }
+        .frame(minHeight: 44)
+        .contentShape(RoundedRectangle(cornerRadius: 20))
         .onTapGesture {
             onTap?()
         }
-        .accessibilityHint("Double tap to flip card")
+        .accessibilityLabel("Flashcard")
+        .accessibilityValue(isFlipped ? "Back side showing" : "Front side showing")
+        .accessibilityHint("Double tap to flip card.")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            onTap?()
+        }
         .onChange(of: isFlipped) { _, flipped in
-            withAnimation(.easeInOut(duration: 0.4)) {
+            if reduceMotion {
                 rotation = flipped ? 180 : 0
+            } else {
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    rotation = flipped ? 180 : 0
+                }
             }
         }
     }
@@ -45,6 +57,7 @@ struct FlashcardView: View {
                 RoundedRectangle(cornerRadius: 20)
                     .stroke(Color.accentColor.opacity(0.2), lineWidth: 1)
             )
+            .accessibilityHidden(true)
     }
 }
 

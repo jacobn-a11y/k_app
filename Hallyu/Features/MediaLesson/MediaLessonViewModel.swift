@@ -71,11 +71,11 @@ final class MediaLessonViewModel {
     private(set) var comprehensionAnswers: [ComprehensionAnswer] = []
     private(set) var comprehensionShowingFeedback: Bool = false
     private(set) var isGeneratingQuestions: Bool = false
+    private(set) var comprehensionGenerationError: String?
 
     // Vocabulary extraction state
     private(set) var extractedWords: [ExtractedWord] = []
     private(set) var selectedWordIds: Set<UUID> = []
-    private(set) var persistedWordIds: Set<UUID> = []
 
     // Shadowing state
     private(set) var shadowingSentences: [ShadowingSentence] = []
@@ -83,7 +83,6 @@ final class MediaLessonViewModel {
 
     // Summary state
     private(set) var sessionSummary: LessonSummary?
-    private(set) var didPersistStudySession: Bool = false
 
     // Services
     let claudeService: ClaudeServiceProtocol
@@ -93,6 +92,7 @@ final class MediaLessonViewModel {
     let speechRecognition: SpeechRecognitionServiceProtocol
     let userId: UUID
     let learnerLevel: String
+    private let subscriptionTier: AppState.SubscriptionTier
 
     // MARK: - Types
 
@@ -155,7 +155,8 @@ final class MediaLessonViewModel {
         audioService: AudioServiceProtocol,
         speechRecognition: SpeechRecognitionServiceProtocol,
         userId: UUID,
-        learnerLevel: String
+        learnerLevel: String,
+        subscriptionTier: AppState.SubscriptionTier = .core
     ) {
         self.content = content
         self.claudeService = claudeService
@@ -165,6 +166,7 @@ final class MediaLessonViewModel {
         self.speechRecognition = speechRecognition
         self.userId = userId
         self.learnerLevel = learnerLevel
+        self.subscriptionTier = subscriptionTier
 
         setupPreTaskWords()
         setupExtractedWords()
@@ -309,6 +311,17 @@ final class MediaLessonViewModel {
 
     func generateComprehensionQuestions() async {
         isGeneratingQuestions = true
+        comprehensionGenerationError = nil
+        defer { isGeneratingQuestions = false }
+
+        do {
+            try await claudeService.checkTierAllowed(tier: subscriptionTier)
+        } catch {
+            comprehensionQuestions = []
+            comprehensionGenerationError = claudeErrorMessage(for: error)
+            return
+        }
+
         do {
             let items = try await claudeService.generatePracticeItems(
                 mediaContentId: content.id,
@@ -318,8 +331,8 @@ final class MediaLessonViewModel {
         } catch {
             // Fallback: empty questions means step can be skipped
             comprehensionQuestions = []
+            comprehensionGenerationError = error.localizedDescription
         }
-        isGeneratingQuestions = false
     }
 
     func submitComprehensionAnswer(_ answer: String) {
@@ -377,45 +390,34 @@ final class MediaLessonViewModel {
         selectedWordIds.removeAll()
     }
 
-    @discardableResult
-    func addSelectedWordsToSRS(modelContext: ModelContext?) -> Int {
-        guard let modelContext else {
-            persistedWordIds.formUnion(selectedWordIds)
-            buildSummary()
-            return selectedWordIds.count
+    func addSelectedWordsToSRS() {
+        guard let modelContext = SwiftDataContextRegistry.shared.modelContext else {
+            print("[MediaLesson] Missing SwiftData context; cannot persist selected words.")
+            return
         }
 
-        var addedCount = 0
-        let existingItems = (try? modelContext.fetch(FetchDescriptor<ReviewItem>())) ?? []
-        var existingWordIds = Set(
+        let selectedIds = selectedWordIds
+        guard !selectedIds.isEmpty else { return }
+
+        let descriptor = FetchDescriptor<ReviewItem>()
+        let existingItems = (try? modelContext.fetch(descriptor)) ?? []
+        let existingVocabularyIds = Set(
             existingItems
                 .filter { $0.userId == userId && $0.itemType == "vocabulary" }
-                .map(\.itemId)
+                .map { $0.itemId }
         )
 
-        for word in extractedWords where selectedWordIds.contains(word.id) {
-            if existingWordIds.contains(word.id) {
-                persistedWordIds.insert(word.id)
-                continue
-            }
-
+        for wordId in selectedIds {
+            guard !existingVocabularyIds.contains(wordId) else { continue }
             let reviewItem = ReviewItem(
                 userId: userId,
                 itemType: "vocabulary",
-                itemId: word.id,
-                promptText: word.korean,
-                answerText: word.english,
-                sourceContext: content.title
+                itemId: wordId
             )
             modelContext.insert(reviewItem)
-            persistedWordIds.insert(word.id)
-            existingWordIds.insert(word.id)
-            addedCount += 1
         }
 
         try? modelContext.save()
-        buildSummary()
-        return addedCount
     }
 
     var selectedWordCount: Int {
@@ -435,16 +437,15 @@ final class MediaLessonViewModel {
     }
 
     func recordShadowingAttempt(transcript: String, confidence: Double) {
-        let attemptIndex = shadowingCurrentIndex
-        guard attemptIndex < shadowingSentences.count else { return }
+        guard shadowingCurrentIndex < shadowingSentences.count else { return }
+        let sentenceIndex = shadowingCurrentIndex
+        let sentence = shadowingSentences[sentenceIndex]
 
-        shadowingSentences[attemptIndex].attempts += 1
-        if confidence > shadowingSentences[attemptIndex].bestConfidence {
-            shadowingSentences[attemptIndex].bestTranscript = transcript
-            shadowingSentences[attemptIndex].bestConfidence = confidence
+        shadowingSentences[sentenceIndex].attempts += 1
+        if confidence > shadowingSentences[sentenceIndex].bestConfidence {
+            shadowingSentences[sentenceIndex].bestTranscript = transcript
+            shadowingSentences[sentenceIndex].bestConfidence = confidence
         }
-
-        let sentenceId = shadowingSentences[attemptIndex].id
 
         // Update learner model for pronunciation
         Task {
@@ -452,7 +453,7 @@ final class MediaLessonViewModel {
                 try await learnerModel.updateMastery(
                     userId: userId,
                     skillType: "pronunciation",
-                    skillId: sentenceId.uuidString,
+                    skillId: sentence.id.uuidString,
                     wasCorrect: confidence >= 0.7,
                     responseTime: 0
                 )
@@ -460,10 +461,6 @@ final class MediaLessonViewModel {
                 print("[MediaLesson] Failed to update pronunciation mastery: \(error.localizedDescription)")
             }
         }
-    }
-
-    func getPronunciationFeedback(transcript: String, target: String) async -> PronunciationFeedback? {
-        try? await claudeService.getPronunciationFeedback(transcript: transcript, target: target)
     }
 
     func nextShadowingSentence() {
@@ -481,7 +478,7 @@ final class MediaLessonViewModel {
             wordsPreTaught: preTaskWords.count,
             wordsKnown: wordsKnown,
             comprehensionScore: comprehensionScore,
-            wordsAddedToSRS: persistedWordIds.count,
+            wordsAddedToSRS: selectedWordIds.count,
             sentencesShadowed: shadowingSentences.prefix(shadowingCurrentIndex).count,
             contentTitle: content.title
         )
@@ -499,21 +496,13 @@ final class MediaLessonViewModel {
             sessionData: [
                 "contentType": content.contentType,
                 "cefrLevel": content.cefrLevel,
-                "wordsAddedToSRS": "\(persistedWordIds.count)",
+                "wordsAddedToSRS": "\(selectedWordIds.count)",
                 "comprehensionScore": String(format: "%.2f", comprehensionScore),
                 "sentencesShadowed": "\(shadowingCurrentIndex)"
             ],
             startedAt: startTime,
             completedAt: Date()
         )
-    }
-
-    func saveStudySessionIfNeeded(modelContext: ModelContext?) {
-        guard !didPersistStudySession, let modelContext else { return }
-        let session = createStudySession()
-        modelContext.insert(session)
-        try? modelContext.save()
-        didPersistStudySession = true
     }
 
     // MARK: - Setup Helpers
@@ -530,10 +519,10 @@ final class MediaLessonViewModel {
         // Pick 5-8 key words (high frequency, likely unknown)
         preTaskWords = Array(uniqueTokens.prefix(8)).map { token in
             PreTaskWord(
-                id: deterministicUUID(for: "pretask_\(token)"),
+                id: UUID(),
                 korean: token,
                 romanization: "",
-                english: gloss(for: token),
+                english: "Definition for \(token)",
                 partOfSpeech: "noun"
             )
         }
@@ -545,9 +534,9 @@ final class MediaLessonViewModel {
 
         extractedWords = uniqueTokens.prefix(15).map { token in
             ExtractedWord(
-                id: deterministicUUID(for: "extracted_\(token)"),
+                id: UUID(),
                 korean: token,
-                english: gloss(for: token),
+                english: "Definition for \(token)",
                 romanization: "",
                 frequencyRank: KoreanTextAnalyzer.frequencyRank(for: token)
             )
@@ -585,62 +574,10 @@ final class MediaLessonViewModel {
         return selected
     }
 
-    private func deterministicUUID(for value: String) -> UUID {
-        var hash: UInt64 = 1469598103934665603
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1099511628211
+    private func claudeErrorMessage(for error: Error) -> String {
+        if case ClaudeServiceError.tierLimitReached = error {
+            return "Daily interaction limit reached for your subscription tier. Upgrade to continue."
         }
-
-        let bytes = withUnsafeBytes(of: hash.bigEndian) { Array($0) }
-        var uuidBytes = [UInt8](repeating: 0, count: 16)
-        for i in 0..<8 {
-            uuidBytes[i] = bytes[i]
-            uuidBytes[i + 8] = bytes[i] ^ 0xA5
-        }
-        uuidBytes[6] = (uuidBytes[6] & 0x0F) | 0x40
-        uuidBytes[8] = (uuidBytes[8] & 0x3F) | 0x80
-
-        return UUID(uuid: (
-            uuidBytes[0], uuidBytes[1], uuidBytes[2], uuidBytes[3],
-            uuidBytes[4], uuidBytes[5], uuidBytes[6], uuidBytes[7],
-            uuidBytes[8], uuidBytes[9], uuidBytes[10], uuidBytes[11],
-            uuidBytes[12], uuidBytes[13], uuidBytes[14], uuidBytes[15]
-        ))
-    }
-
-    private func gloss(for token: String) -> String {
-        let glossary: [String: String] = [
-            "안녕하세요": "hello",
-            "감사합니다": "thank you",
-            "미안": "sorry",
-            "오늘": "today",
-            "내일": "tomorrow",
-            "어제": "yesterday",
-            "시간": "time",
-            "사람": "person",
-            "친구": "friend",
-            "가족": "family",
-            "학교": "school",
-            "회사": "company",
-            "집": "home",
-            "물": "water",
-            "밥": "rice/meal",
-            "커피": "coffee",
-            "영화": "movie",
-            "드라마": "drama",
-            "노래": "song",
-            "날씨": "weather",
-            "좋다": "to be good",
-            "하다": "to do",
-            "먹다": "to eat",
-            "가다": "to go",
-            "오다": "to come",
-            "보다": "to see/watch",
-            "듣다": "to listen",
-            "읽다": "to read",
-        ]
-
-        return glossary[token] ?? "Use Claude Coach for context-aware meaning"
+        return error.localizedDescription
     }
 }

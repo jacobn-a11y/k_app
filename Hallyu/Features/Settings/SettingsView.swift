@@ -198,6 +198,7 @@ struct SettingsView: View {
         try? await services.auth.signOut()
         appState.isAuthenticated = false
         appState.currentUserId = nil
+        UserDefaults.standard.removeObject(forKey: "currentUserId")
         isSigningOut = false
     }
 }

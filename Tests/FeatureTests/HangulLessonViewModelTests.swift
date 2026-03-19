@@ -84,7 +84,31 @@ struct HangulLessonViewModelTests {
             vm.advanceStep()
         }
 
+        if vm.isSpotInTheWildActive {
+            vm.completeSpotInTheWild(with: 0.9)
+        }
+
         #expect(vm.isLessonComplete == true)
+    }
+
+    @Test("Completing final jamo activates spot-in-the-wild when task exists")
+    func activatesSpotInTheWildAtLessonEnd() {
+        let vm = makeViewModel(groupIndex: 0)
+        let jamoCount = vm.jamoEntries.count
+        let stepsPerJamo = HangulLessonViewModel.JamoLessonStep.allCases.count
+
+        for _ in 0..<(jamoCount * stepsPerJamo + jamoCount) {
+            if vm.isLessonComplete || vm.isSpotInTheWildActive { break }
+            vm.advanceStep()
+        }
+
+        #expect(vm.isSpotInTheWildActive == true)
+        #expect(vm.spotInTheWildTask != nil)
+        #expect(vm.isLessonComplete == false)
+
+        vm.completeSpotInTheWild(with: 0.8)
+        #expect(vm.isLessonComplete == true)
+        #expect(vm.spotInTheWildScore == 0.8)
     }
 
     // MARK: - Progress

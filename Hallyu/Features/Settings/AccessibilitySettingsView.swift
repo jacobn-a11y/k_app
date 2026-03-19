@@ -47,7 +47,7 @@ struct AccessibilitySettingsView: View {
                 HStack {
                     Label("VoiceOver", systemImage: "speaker.wave.3")
                     Spacer()
-                    Text(UIAccessibility.isVoiceOverRunning ? "On" : "Off")
+                    Text(voiceOverStatusText)
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)
@@ -61,9 +61,11 @@ struct AccessibilitySettingsView: View {
                 .accessibilityElement(children: .combine)
 
                 Button {
+                    #if canImport(UIKit)
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(url)
                     }
+                    #endif
                 } label: {
                     Label("Open System Accessibility Settings", systemImage: "gear")
                 }
@@ -92,6 +94,14 @@ struct AccessibilitySettingsView: View {
         case .accessibility5: return "Accessibility 5"
         @unknown default: return "Default"
         }
+    }
+
+    private var voiceOverStatusText: String {
+        #if canImport(UIKit)
+        return UIAccessibility.isVoiceOverRunning ? "On" : "Off"
+        #else
+        return "Unavailable"
+        #endif
     }
 }
 

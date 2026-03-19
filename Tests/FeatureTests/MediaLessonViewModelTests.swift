@@ -1,4 +1,5 @@
 import XCTest
+import SwiftData
 @testable import Hallyu
 
 final class MediaLessonViewModelTests: XCTestCase {
@@ -37,20 +38,28 @@ final class MediaLessonViewModelTests: XCTestCase {
     }
 
     private func makeViewModel(
+        userId: UUID = UUID(),
         contentType: String = "drama",
-        transcript: String = "사랑 친구 가족 엄마 아빠 학교 회사 집"
+        transcript: String = "사랑 친구 가족 엄마 아빠 학교 회사 집",
+        learnerModel: LearnerModelServiceProtocol = MockLearnerModelService()
     ) -> MediaLessonViewModel {
         let content = makeContent(contentType: contentType, transcript: transcript)
         return MediaLessonViewModel(
             content: content,
             claudeService: MockClaudeService(),
             srsEngine: MockSRSEngine(),
-            learnerModel: MockLearnerModelService(),
+            learnerModel: learnerModel,
             audioService: MockAudioService(),
             speechRecognition: MockSpeechRecognitionService(),
-            userId: UUID(),
+            userId: userId,
             learnerLevel: "A1"
         )
+    }
+
+    private func makeSwiftDataContainer() throws -> ModelContainer {
+        let schema = Schema([ReviewItem.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
     }
 
     // MARK: - Initialization Tests
@@ -236,6 +245,46 @@ final class MediaLessonViewModelTests: XCTestCase {
             vm.submitPreTaskAnswer(knewIt: true)
         }
         XCTAssertNil(vm.currentPreTaskWord)
+    }
+
+    func testAddSelectedWordsToSRSPersistsUniqueItems() throws {
+        let container = try makeSwiftDataContainer()
+        SwiftDataContextRegistry.shared.modelContext = container.mainContext
+        defer { SwiftDataContextRegistry.shared.modelContext = nil }
+
+        let userId = UUID()
+        let vm = makeViewModel(userId: userId)
+        vm.selectAllWords()
+
+        let selectedCount = vm.selectedWordCount
+        XCTAssertGreaterThan(selectedCount, 0)
+
+        vm.addSelectedWordsToSRS()
+        vm.addSelectedWordsToSRS()
+
+        let descriptor = FetchDescriptor<ReviewItem>()
+        let storedItems = (try? container.mainContext.fetch(descriptor)) ?? []
+        let userItems = storedItems.filter { $0.userId == userId && $0.itemType == "vocabulary" }
+        XCTAssertEqual(userItems.count, selectedCount)
+    }
+
+    func testShadowingAttemptUsesSentenceSnapshot() {
+        let expectation = XCTestExpectation(description: "Learner model updated")
+        let learnerModel = RecordingLearnerModelService { _ in
+            expectation.fulfill()
+        }
+        let vm = makeViewModel(learnerModel: learnerModel)
+
+        guard let originalSentenceId = vm.shadowingSentences.first?.id else {
+            XCTFail("Expected shadowing sentences")
+            return
+        }
+
+        vm.recordShadowingAttempt(transcript: "test", confidence: 0.9)
+        vm.nextShadowingSentence()
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(learnerModel.updatedSkillIds.first, originalSentenceId.uuidString)
     }
 
     // MARK: - Media Playback Tests
@@ -584,5 +633,27 @@ final class MediaLessonViewModelTests: XCTestCase {
         let vm = makeViewModel(contentType: "news")
         vm.goToStep(.shadowingPractice) // Not available for news
         XCTAssertNotEqual(vm.currentStep, .shadowingPractice)
+    }
+}
+
+private final class RecordingLearnerModelService: LearnerModelServiceProtocol, @unchecked Sendable {
+    private(set) var updatedSkillIds: [String] = []
+    private let onUpdate: (String) -> Void
+
+    init(onUpdate: @escaping (String) -> Void = { _ in }) {
+        self.onUpdate = onUpdate
+    }
+
+    func updateMastery(userId: UUID, skillType: String, skillId: String, wasCorrect: Bool, responseTime: TimeInterval) async throws {
+        updatedSkillIds.append(skillId)
+        onUpdate(skillId)
+    }
+
+    func getMastery(userId: UUID, skillType: String, skillId: String) async throws -> SkillMastery? {
+        nil
+    }
+
+    func getOverallLevel(userId: UUID) async throws -> String {
+        "A1"
     }
 }

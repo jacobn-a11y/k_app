@@ -13,6 +13,18 @@ struct PronunciationTutorViewModelTests {
         )
     }
 
+    private func makeViewModel(
+        claudeService: ClaudeServiceProtocol,
+        audioService: AudioServiceProtocol,
+        speechRecognition: SpeechRecognitionServiceProtocol
+    ) -> PronunciationTutorViewModel {
+        PronunciationTutorViewModel(
+            claudeService: claudeService,
+            audioService: audioService,
+            speechRecognition: speechRecognition
+        )
+    }
+
     @Test("Initial state is idle")
     func initialState() {
         let vm = makeViewModel()
@@ -103,6 +115,22 @@ struct PronunciationTutorViewModelTests {
         await vm.stopRecordingAndAnalyze()
         // MockSpeechRecognition returns "mock transcript" which matches target
         #expect(vm.feedback != nil)
+        #expect(vm.feedback?.isCorrect == true)
+    }
+
+    @Test("Similarity and confidence can accept near matches")
+    func fuzzyMatchAccepted() async {
+        let vm = makeViewModel(
+            claudeService: FuzzyFailClaudeService(),
+            audioService: MockAudioService(),
+            speechRecognition: NearMatchSpeechRecognitionService()
+        )
+
+        vm.setTarget("mock transcript")
+        await vm.startRecording()
+        await vm.stopRecordingAndAnalyze()
+
+        #expect(vm.feedback?.isCorrect == true)
     }
 
     @Test("shouldSuggestDrill after multiple failed attempts")
@@ -112,5 +140,52 @@ struct PronunciationTutorViewModelTests {
         // Simulate error patterns being tracked
         // After 3+ attempts with errors, drill should be suggested
         #expect(!vm.shouldSuggestDrill) // No attempts yet
+    }
+}
+
+private final class NearMatchSpeechRecognitionService: SpeechRecognitionServiceProtocol, @unchecked Sendable {
+    var isAvailable: Bool = true
+
+    func requestAuthorization() async -> Bool { true }
+
+    func recognizeSpeech(from audioURL: URL) async throws -> SpeechRecognitionResult {
+        SpeechRecognitionResult(
+            transcript: "mock transcrip",
+            confidence: 0.92,
+            segments: [SpeechSegment(text: "mock transcrip", confidence: 0.92, timestamp: 0, duration: 1.0)]
+        )
+    }
+}
+
+private final class FuzzyFailClaudeService: ClaudeServiceProtocol, @unchecked Sendable {
+    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws {
+        try await MockClaudeService().checkTierAllowed(tier: tier)
+    }
+
+    func resetSessionState() async {}
+
+    func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse {
+        try await MockClaudeService().getComprehensionHelp(context: context, query: query)
+    }
+
+    func getPronunciationFeedback(transcript: String, target: String) async throws -> PronunciationFeedback {
+        PronunciationFeedback(
+            isCorrect: false,
+            feedback: "Mock fallback feedback",
+            articulatoryTip: "Try ending the final consonant more clearly.",
+            similarSounds: ["mock transcript"]
+        )
+    }
+
+    func getGrammarExplanation(pattern: String, context: String) async throws -> GrammarExplanation {
+        try await MockClaudeService().getGrammarExplanation(pattern: pattern, context: context)
+    }
+
+    func generatePracticeItems(mediaContentId: UUID, learnerLevel: String) async throws -> [PracticeItem] {
+        try await MockClaudeService().generatePracticeItems(mediaContentId: mediaContentId, learnerLevel: learnerLevel)
+    }
+
+    func getCulturalContext(moment: String, mediaContext: String) async throws -> CulturalContextResponse {
+        try await MockClaudeService().getCulturalContext(moment: moment, mediaContext: mediaContext)
     }
 }

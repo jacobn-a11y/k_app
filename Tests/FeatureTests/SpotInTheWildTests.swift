@@ -93,4 +93,18 @@ struct SpotInTheWildTests {
         let tasks = SpotInTheWildTask.tasks(for: 0)
         #expect(!tasks.isEmpty)
     }
+
+    @Test("Spot tasks cover all lesson groups")
+    func sampleTasksCoverAllGroups() {
+        let allGroups = Set(HangulData.lessonGroups.map(\.id))
+        let coveredGroups = Set(SpotInTheWildTask.sampleTasks.map(\.groupIndex))
+        #expect(allGroups.isSubset(of: coveredGroups))
+    }
+
+    @Test("Each sample task has at least two tap targets")
+    func sampleTaskTargetsSufficient() {
+        for task in SpotInTheWildTask.sampleTasks {
+            #expect(task.tapTargets.count >= 2)
+        }
+    }
 }

@@ -1,106 +1,9 @@
 import SwiftUI
-
-// MARK: - Data
-
-struct SpotInTheWildTask: Identifiable, Equatable {
-    let id: UUID
-    let targetJamo: Character
-    let imageName: String
-    let imageDescription: String
-    let tapTargets: [TapTarget]
-    let groupIndex: Int
-}
-
-struct TapTarget: Identifiable, Equatable {
-    let id: UUID
-    let boundingBox: CGRect // normalized 0-1 coordinates
-    let character: String
-}
-
-// MARK: - View Model
-
-@Observable
-final class SpotInTheWildViewModel {
-    let task: SpotInTheWildTask
-    private(set) var foundTargets: Set<UUID> = []
-    private(set) var incorrectTaps: Int = 0
-    private(set) var isComplete: Bool = false
-    private(set) var score: Double = 0
-
-    var remainingCount: Int {
-        task.tapTargets.count - foundTargets.count
-    }
-
-    init(task: SpotInTheWildTask) {
-        self.task = task
-    }
-
-    func handleTap(at normalizedPoint: CGPoint) -> TapResult {
-        for target in task.tapTargets {
-            guard !foundTargets.contains(target.id) else { continue }
-
-            if target.boundingBox.contains(normalizedPoint) {
-                foundTargets.insert(target.id)
-                if foundTargets.count == task.tapTargets.count {
-                    isComplete = true
-                    calculateScore()
-                }
-                return .found(target)
-            }
-        }
-
-        incorrectTaps += 1
-        return .missed
-    }
-
-    private func calculateScore() {
-        let totalTaps = foundTargets.count + incorrectTaps
-        guard totalTaps > 0 else {
-            score = 0
-            return
-        }
-        score = Double(foundTargets.count) / Double(totalTaps)
-    }
-
-    enum TapResult: Equatable {
-        case found(TapTarget)
-        case missed
-    }
-}
-
-// MARK: - Sample Data
-
-extension SpotInTheWildTask {
-    static let sampleTasks: [SpotInTheWildTask] = [
-        SpotInTheWildTask(
-            id: UUID(),
-            targetJamo: "ㄱ",
-            imageName: "sample_drama_1",
-            imageDescription: "K-drama scene with Korean text overlay showing title",
-            tapTargets: [
-                TapTarget(id: UUID(), boundingBox: CGRect(x: 0.3, y: 0.2, width: 0.08, height: 0.08), character: "ㄱ"),
-                TapTarget(id: UUID(), boundingBox: CGRect(x: 0.6, y: 0.5, width: 0.08, height: 0.08), character: "ㄱ"),
-            ],
-            groupIndex: 0
-        ),
-        SpotInTheWildTask(
-            id: UUID(),
-            targetJamo: "ㅏ",
-            imageName: "sample_drama_2",
-            imageDescription: "Webtoon panel with dialogue bubbles",
-            tapTargets: [
-                TapTarget(id: UUID(), boundingBox: CGRect(x: 0.2, y: 0.3, width: 0.06, height: 0.08), character: "ㅏ"),
-                TapTarget(id: UUID(), boundingBox: CGRect(x: 0.5, y: 0.6, width: 0.06, height: 0.08), character: "ㅏ"),
-                TapTarget(id: UUID(), boundingBox: CGRect(x: 0.7, y: 0.4, width: 0.06, height: 0.08), character: "ㅏ"),
-            ],
-            groupIndex: 0
-        ),
-    ]
-
-    static func tasks(for groupIndex: Int) -> [SpotInTheWildTask] {
-        sampleTasks.filter { $0.groupIndex == groupIndex }
-    }
-}
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - View
 
@@ -109,9 +12,11 @@ struct SpotInTheWildView: View {
     @State private var showFeedback: Bool = false
     @State private var lastTapResult: SpotInTheWildViewModel.TapResult?
     @State private var feedbackPosition: CGPoint = .zero
+    let onComplete: ((Double) -> Void)?
 
-    init(task: SpotInTheWildTask) {
+    init(task: SpotInTheWildTask, onComplete: ((Double) -> Void)? = nil) {
         _viewModel = State(initialValue: SpotInTheWildViewModel(task: task))
+        self.onComplete = onComplete
     }
 
     var body: some View {
@@ -135,21 +40,33 @@ struct SpotInTheWildView: View {
             // Image area with tap targets
             GeometryReader { geo in
                 ZStack {
-                    // Placeholder for actual image
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(.secondarySystemBackground))
-                        .overlay {
-                            VStack {
-                                Image(systemName: "photo")
-                                    .font(.largeTitle)
-                                    .foregroundStyle(.secondary)
-                                Text(viewModel.task.imageDescription)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal)
-                            }
+                    taskSurfaceBackground
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Spot the character", systemImage: "hand.tap.fill")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                            Spacer()
                         }
+
+                        Spacer()
+
+                        Text(viewModel.task.imageDescription)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .padding()
+
+                    // Show target overlays
+                    ForEach(viewModel.task.tapTargets) { target in
+                        targetOverlay(target: target, in: geo.size)
+                            .opacity(viewModel.foundTargets.contains(target.id) ? 1.0 : 0.92)
+                    }
 
                     // Show found targets
                     ForEach(viewModel.task.tapTargets) { target in
@@ -220,5 +137,119 @@ struct SpotInTheWildView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
+        .onChange(of: viewModel.isComplete) { _, isComplete in
+            guard isComplete else { return }
+            onComplete?(viewModel.score)
+        }
+    }
+
+    private var pseudoMediaBackdrop: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(pseudoSceneGradient)
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+            }
+    }
+
+    private var pseudoMediaAccents: some View {
+        ZStack {
+            Circle()
+                .fill(.white.opacity(0.12))
+                .frame(width: 120, height: 120)
+                .offset(x: -92, y: -80)
+
+            RoundedRectangle(cornerRadius: 24)
+                .fill(.black.opacity(0.08))
+                .frame(width: 170, height: 72)
+                .rotationEffect(.degrees(-12))
+                .offset(x: 86, y: -62)
+
+            RoundedRectangle(cornerRadius: 18)
+                .fill(.white.opacity(0.10))
+                .frame(width: 150, height: 56)
+                .rotationEffect(.degrees(11))
+                .offset(x: 80, y: 95)
+        }
+    }
+
+    private func targetOverlay(target: TapTarget, in size: CGSize) -> some View {
+        let isFound = viewModel.foundTargets.contains(target.id)
+        let width = target.boundingBox.width * size.width
+        let height = target.boundingBox.height * size.height
+
+        return VStack(spacing: 2) {
+            Text(target.character)
+                .font(.system(size: max(min(width, height) * 0.65, 18), weight: .bold, design: .rounded))
+                .foregroundStyle(isFound ? .green : .primary)
+
+            Text(isFound ? "Found" : "Tap")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(isFound ? .green : .secondary)
+        }
+        .frame(width: width, height: height)
+        .padding(4)
+        .background(isFound ? Color.green.opacity(0.16) : Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isFound ? Color.green : Color.white.opacity(0.75), lineWidth: 2)
+        )
+        .shadow(color: .black.opacity(isFound ? 0.08 : 0.16), radius: 6, x: 0, y: 2)
+        .position(
+            x: (target.boundingBox.midX) * size.width,
+            y: (target.boundingBox.midY) * size.height
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(target.character) \(isFound ? "found" : "tap target")")
+    }
+
+    private var pseudoSceneGradient: LinearGradient {
+        let palette = taskPalette
+        return LinearGradient(
+            colors: [palette.top, palette.mid, palette.bottom],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var taskPalette: (top: Color, mid: Color, bottom: Color) {
+        switch viewModel.task.targetJamo {
+        case "ㄱ":
+            return (.indigo.opacity(0.95), .blue.opacity(0.90), .cyan.opacity(0.95))
+        case "ㅏ":
+            return (.orange.opacity(0.95), .pink.opacity(0.88), .red.opacity(0.82))
+        default:
+            return (.purple.opacity(0.95), .blue.opacity(0.88), .mint.opacity(0.92))
+        }
+    }
+
+    @ViewBuilder
+    private var taskSurfaceBackground: some View {
+        if let image = bundledTaskImage {
+            image
+                .resizable()
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(.black.opacity(0.16))
+                }
+        } else {
+            pseudoMediaBackdrop
+            pseudoMediaAccents
+        }
+    }
+
+    private var bundledTaskImage: Image? {
+        #if canImport(UIKit)
+        guard let image = UIImage(named: viewModel.task.imageName) else { return nil }
+        return Image(uiImage: image)
+        #elseif canImport(AppKit)
+        guard let image = NSImage(named: viewModel.task.imageName) else { return nil }
+        return Image(nsImage: image)
+        #else
+        return nil
+        #endif
     }
 }

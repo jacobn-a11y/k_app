@@ -58,6 +58,29 @@ struct NotificationSettingsView: View {
                         )
                     }
                 }
+
+                Section("Push Status") {
+                    statusRow(
+                        title: "Permission",
+                        value: notificationService.isAuthorized ? "Authorized" : "Not authorized",
+                        systemImage: notificationService.isAuthorized ? "checkmark.circle.fill" : "xmark.circle.fill",
+                        tint: notificationService.isAuthorized ? .green : .orange
+                    )
+
+                    statusRow(
+                        title: "Device Token",
+                        value: notificationService.apnsDeviceTokenHex == nil ? "Not registered" : "Registered",
+                        systemImage: notificationService.apnsDeviceTokenHex == nil ? "iphone.slash" : "iphone",
+                        tint: notificationService.apnsDeviceTokenHex == nil ? .secondary : .blue
+                    )
+
+                    if let syncError = notificationService.lastPushSyncError {
+                        Text(syncError)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .accessibilityLabel("Push sync issue: \(syncError)")
+                    }
+                }
             }
         }
         .navigationTitle("Notifications")
@@ -67,11 +90,13 @@ struct NotificationSettingsView: View {
             reminderMinute = notificationService.preferredReminderMinute
         }
         .alert("Notifications Disabled", isPresented: $showAuthAlert) {
+            #if canImport(UIKit)
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url)
                 }
             }
+            #endif
             Button("Cancel", role: .cancel) {
                 isEnabled = false
             }
@@ -93,6 +118,17 @@ struct NotificationSettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func statusRow(title: String, value: String, systemImage: String, tint: Color) -> some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+                .foregroundStyle(tint)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
     }

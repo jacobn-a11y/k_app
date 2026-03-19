@@ -112,6 +112,12 @@ struct MediaLibraryView: View {
                 filterLabel("Duration: \(viewModel.filters.duration.displayName)")
             }
 
+            Button {
+                showFilters = true
+            } label: {
+                filterLabel("Filters")
+            }
+
             Spacer()
 
             Menu {
@@ -159,15 +165,17 @@ struct MediaLibraryView: View {
                         GridItem(.flexible(), spacing: 12)
                     ], spacing: 12) {
                         ForEach(viewModel.filteredContent, id: \.id) { content in
-                            MediaCardView(
-                                content: content,
-                                coverage: viewModel.coverage(for: content),
-                                coverageLevel: viewModel.coverageLevel(for: content),
-                                formattedDuration: viewModel.formattedDuration(for: content)
-                            )
-                            .onTapGesture {
+                            Button {
                                 selectedContent = content
+                            } label: {
+                                MediaCardView(
+                                    content: content,
+                                    coverage: viewModel.coverage(for: content),
+                                    coverageLevel: viewModel.coverageLevel(for: content),
+                                    formattedDuration: viewModel.formattedDuration(for: content)
+                                )
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding()

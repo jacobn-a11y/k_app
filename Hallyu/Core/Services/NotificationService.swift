@@ -1,6 +1,9 @@
 import Foundation
 import UserNotifications
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @Observable
 final class NotificationService: @unchecked Sendable {
@@ -8,12 +11,22 @@ final class NotificationService: @unchecked Sendable {
     var notificationsEnabled: Bool = true
     var preferredReminderHour: Int = 9
     var preferredReminderMinute: Int = 0
+    var apnsDeviceTokenHex: String?
+    var lastPushSyncError: String?
 
     private let center = UNUserNotificationCenter.current()
     private let prefsKey = "notificationPreferences"
+    private let apnsTokenKey = "apnsDeviceTokenHex"
+    private var apnsObservers: [NSObjectProtocol] = []
+    private var pushRegistrationHandler: ((PushRegistrationPayload) async throws -> Void)?
 
     init() {
         loadPreferences()
+        subscribeToAPNSEvents()
+    }
+
+    deinit {
+        apnsObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     // MARK: - Authorization
@@ -22,6 +35,10 @@ final class NotificationService: @unchecked Sendable {
         do {
             let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
             await MainActor.run { isAuthorized = granted }
+            if granted {
+                registerForRemoteNotificationsIfAuthorized()
+                await syncPushRegistrationIfPossible()
+            }
             return granted
         } catch {
             return false
@@ -32,6 +49,9 @@ final class NotificationService: @unchecked Sendable {
         let settings = await center.notificationSettings()
         await MainActor.run {
             isAuthorized = settings.authorizationStatus == .authorized
+        }
+        if isAuthorized {
+            registerForRemoteNotificationsIfAuthorized()
         }
     }
 
@@ -67,6 +87,7 @@ final class NotificationService: @unchecked Sendable {
         )
 
         try? await center.add(request)
+        await syncPushRegistrationIfPossible()
     }
 
     func scheduleStreakReminder() async {
@@ -94,10 +115,50 @@ final class NotificationService: @unchecked Sendable {
         )
 
         try? await center.add(request)
+        await syncPushRegistrationIfPossible()
     }
 
     func cancelAllNotifications() {
         center.removeAllPendingNotificationRequests()
+    }
+
+    // MARK: - APNs + Backend Registration
+
+    struct PushRegistrationPayload: Equatable, Sendable {
+        let deviceToken: String
+        let notificationsEnabled: Bool
+        let reminderHour: Int
+        let reminderMinute: Int
+    }
+
+    func configurePushRegistrationHandler(
+        _ handler: @escaping (PushRegistrationPayload) async throws -> Void
+    ) {
+        pushRegistrationHandler = handler
+        Task { await syncPushRegistrationIfPossible() }
+    }
+
+    func refreshPushRegistration() async {
+        await syncPushRegistrationIfPossible()
+    }
+
+    func handleAPNsDeviceToken(_ tokenData: Data) {
+        let tokenHex = Self.hexString(from: tokenData)
+        guard !tokenHex.isEmpty else { return }
+        apnsDeviceTokenHex = tokenHex
+        savePreferences()
+        Task { await syncPushRegistrationIfPossible() }
+    }
+
+    func handleAPNsRegistrationError(_ error: Error) {
+        lastPushSyncError = error.localizedDescription
+    }
+
+    func registerForRemoteNotificationsIfAuthorized() {
+        #if canImport(UIKit)
+        guard isAuthorized else { return }
+        UIApplication.shared.registerForRemoteNotifications()
+        #endif
     }
 
     // MARK: - Deep Link Handling
@@ -164,13 +225,16 @@ final class NotificationService: @unchecked Sendable {
         if !enabled {
             cancelAllNotifications()
         }
+
+        Task { await syncPushRegistrationIfPossible() }
     }
 
     private func savePreferences() {
         let prefs: [String: Any] = [
             "enabled": notificationsEnabled,
             "hour": preferredReminderHour,
-            "minute": preferredReminderMinute
+            "minute": preferredReminderMinute,
+            apnsTokenKey: apnsDeviceTokenHex as Any
         ]
         UserDefaults.standard.set(prefs, forKey: prefsKey)
     }
@@ -180,6 +244,56 @@ final class NotificationService: @unchecked Sendable {
         notificationsEnabled = prefs["enabled"] as? Bool ?? true
         preferredReminderHour = prefs["hour"] as? Int ?? 9
         preferredReminderMinute = prefs["minute"] as? Int ?? 0
+        apnsDeviceTokenHex = prefs[apnsTokenKey] as? String
+    }
+
+    private func subscribeToAPNSEvents() {
+        let center = NotificationCenter.default
+
+        let tokenObserver = center.addObserver(
+            forName: .hallyuDidRegisterForRemoteNotifications,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let data = note.userInfo?["deviceToken"] as? Data else { return }
+            self?.handleAPNsDeviceToken(data)
+        }
+
+        let errorObserver = center.addObserver(
+            forName: .hallyuDidFailToRegisterForRemoteNotifications,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let error = note.userInfo?["error"] as? Error else { return }
+            self?.handleAPNsRegistrationError(error)
+        }
+
+        apnsObservers = [tokenObserver, errorObserver]
+    }
+
+    private func syncPushRegistrationIfPossible() async {
+        guard let token = apnsDeviceTokenHex,
+              let handler = pushRegistrationHandler else {
+            return
+        }
+
+        let payload = PushRegistrationPayload(
+            deviceToken: token,
+            notificationsEnabled: notificationsEnabled && isAuthorized,
+            reminderHour: preferredReminderHour,
+            reminderMinute: preferredReminderMinute
+        )
+
+        do {
+            try await handler(payload)
+            await MainActor.run { lastPushSyncError = nil }
+        } catch {
+            await MainActor.run { lastPushSyncError = error.localizedDescription }
+        }
+    }
+
+    static func hexString(from data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -189,4 +303,11 @@ enum DeepLink: Equatable {
     case reviewSession
     case dailyPlan
     case mediaLesson(id: UUID)
+}
+
+extension Notification.Name {
+    static let hallyuDidRegisterForRemoteNotifications =
+        Notification.Name("hallyuDidRegisterForRemoteNotifications")
+    static let hallyuDidFailToRegisterForRemoteNotifications =
+        Notification.Name("hallyuDidFailToRegisterForRemoteNotifications")
 }

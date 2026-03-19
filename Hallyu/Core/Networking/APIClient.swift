@@ -2,6 +2,8 @@ import Foundation
 
 enum APIError: Error, LocalizedError {
     case invalidURL
+    case insecureTransport
+    case disallowedHost(host: String)
     case invalidResponse
     case httpError(statusCode: Int, data: Data?)
     case decodingError(Error)
@@ -13,6 +15,8 @@ enum APIError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "Invalid URL"
+        case .insecureTransport: return "Only HTTPS requests are allowed"
+        case .disallowedHost(let host): return "Requests to \(host) are not allowed"
         case .invalidResponse: return "Invalid response from server"
         case .httpError(let code, _): return "HTTP error: \(code)"
         case .decodingError: return "Invalid server response"
@@ -73,6 +77,7 @@ actor APIClient {
     private let session: URLSession
     private let maxRetries: Int
     private let defaultHeaders: [String: String]
+    private let hostAllowlist: ((String) -> Bool)?
 
     private static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -85,12 +90,14 @@ actor APIClient {
         baseURL: URL,
         session: URLSession = APIClient.defaultSession,
         maxRetries: Int = 3,
-        defaultHeaders: [String: String] = [:]
+        defaultHeaders: [String: String] = [:],
+        hostAllowlist: ((String) -> Bool)? = nil
     ) {
         self.baseURL = baseURL
         self.session = session
         self.maxRetries = maxRetries
         self.defaultHeaders = defaultHeaders
+        self.hostAllowlist = hostAllowlist
     }
 
     func send<T: Decodable>(_ request: APIRequest) async throws -> T {
@@ -161,6 +168,7 @@ actor APIClient {
         guard let url = components?.url else {
             throw APIError.invalidURL
         }
+        try validateTransport(for: url)
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue
@@ -181,5 +189,19 @@ actor APIClient {
         }
 
         return urlRequest
+    }
+
+    private func validateTransport(for url: URL) throws {
+        guard url.scheme?.lowercased() == "https" else {
+            throw APIError.insecureTransport
+        }
+
+        guard let host = url.host, !host.isEmpty else {
+            throw APIError.invalidURL
+        }
+
+        if let hostAllowlist, !hostAllowlist(host) {
+            throw APIError.disallowedHost(host: host)
+        }
     }
 }

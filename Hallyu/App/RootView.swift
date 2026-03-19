@@ -7,17 +7,25 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        if appState.isOnboardingComplete {
-            ContentView()
-        } else {
-            OnboardingView { result in
-                createProfileAndComplete(result: result)
+        Group {
+            if appState.isOnboardingComplete {
+                ContentView()
+            } else {
+                OnboardingView { result in
+                    createProfileAndComplete(result: result)
+                }
             }
+        }
+        .onAppear {
+            _ = currentLearnerProfile(modelContext: modelContext, appState: appState)
         }
     }
 
     private func createProfileAndComplete(result: OnboardingResult) {
-        let userId = appState.currentUserId ?? UUID()
+        let userId = appState.currentUserId
+            ?? UserDefaults.standard.string(forKey: SessionPersistenceKeys.currentUserId)
+                .flatMap(UUID.init(uuidString:))
+            ?? UUID()
 
         let profile = LearnerProfile(
             userId: userId,
@@ -36,15 +44,8 @@ struct RootView: View {
         try? modelContext.save()
 
         // Update app state
-        appState.isOnboardingComplete = true
-        appState.dailyGoalMinutes = result.dailyGoalMinutes
-        appState.currentUserId = userId
-        if let level = result.placedCEFRLevel,
-           let cefrLevel = AppState.CEFRLevel(rawValue: level) {
-            appState.currentCEFRLevel = cefrLevel
-        }
-
-        // Persist onboarding completion
-        UserDefaults.standard.set(true, forKey: "onboardingComplete")
+        persistLearnerSession(profile: profile, appState: appState)
+        UserDefaults.standard.set(result.placedCEFRLevel ?? "pre-A1", forKey: SessionPersistenceKeys.currentCEFRLevel)
+        UserDefaults.standard.set(true, forKey: SessionPersistenceKeys.onboardingComplete)
     }
 }

@@ -266,7 +266,7 @@ struct CEFRMilestoneView: View {
             Spacer()
         }
         .padding(12)
-        .background(Color(.systemGray6).opacity(isUnlocked ? 0.5 : 0.3))
+        .background(Color.gray.opacity(isUnlocked ? 0.18 : 0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(milestone.title): \(milestone.description). \(isUnlocked ? "Completed" : "\(Int(progress * 100)) percent progress")")
@@ -276,8 +276,8 @@ struct CEFRMilestoneView: View {
 
     private func isMilestoneUnlocked(_ milestone: CEFRMilestone) -> Bool {
         for req in milestone.requiredSkills {
-            let mastery = skillMasteries.first { $0.skillType == req.skillType }
-            guard let mastery = mastery, mastery.accuracy >= req.minimumAccuracy else {
+            guard let mastery = aggregatedMastery(for: req.skillType),
+                  mastery.accuracy >= req.minimumAccuracy else {
                 return false
             }
         }
@@ -287,11 +287,45 @@ struct CEFRMilestoneView: View {
     private func milestoneProgress(_ milestone: CEFRMilestone) -> Double {
         guard !milestone.requiredSkills.isEmpty else { return 0 }
         let totalProgress = milestone.requiredSkills.reduce(0.0) { sum, req in
-            let mastery = skillMasteries.first { $0.skillType == req.skillType }
-            let accuracy = mastery?.accuracy ?? 0
+            let accuracy = aggregatedMastery(for: req.skillType)?.accuracy ?? 0
             return sum + min(accuracy / req.minimumAccuracy, 1.0)
         }
         return totalProgress / Double(milestone.requiredSkills.count)
+    }
+
+    private func aggregatedMastery(for skillType: String) -> (accuracy: Double, attempts: Int)? {
+        let matches = skillMasteries.filter { $0.skillType == skillType }
+        guard !matches.isEmpty else { return nil }
+
+        let now = Date()
+        let weighted = matches.reduce(into: (weightedAccuracy: 0.0, totalWeight: 0.0, attempts: 0)) { partial, mastery in
+            let baseAccuracy = mastery.retention > 0 ? (mastery.accuracy * 0.75 + mastery.retention * 0.25) : mastery.accuracy
+            let attemptWeight = max(1.0, Double(mastery.attempts))
+            let recencyWeight = recencyWeight(for: mastery.lastAssessedAt, now: now)
+            let weight = attemptWeight * recencyWeight
+
+            partial.weightedAccuracy += baseAccuracy * weight
+            partial.totalWeight += weight
+            partial.attempts += mastery.attempts
+        }
+
+        guard weighted.totalWeight > 0 else { return nil }
+        return (accuracy: weighted.weightedAccuracy / weighted.totalWeight, attempts: weighted.attempts)
+    }
+
+    private func recencyWeight(for date: Date?, now: Date) -> Double {
+        guard let date else { return 1.0 }
+        let ageDays = max(now.timeIntervalSince(date) / 86_400.0, 0)
+        switch ageDays {
+        case ..<7:
+            return 1.0
+        case ..<30:
+            return 0.95
+        case ..<90:
+            return 0.85
+        default:
+            return 0.7
+        }
     }
 
     private func levelColor(_ level: String) -> Color {

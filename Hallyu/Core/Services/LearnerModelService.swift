@@ -34,7 +34,7 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
     // MARK: - CEFR Thresholds
 
     /// Minimum aggregate mastery to reach each CEFR level
-    static let cefrThresholds: [(level: CEFRLevel, threshold: Double)] = [
+    static let cefrThresholds: [(level: AppState.CEFRLevel, threshold: Double)] = [
         (.b2, 0.90),
         (.b1, 0.75),
         (.a2, 0.55),
@@ -57,7 +57,7 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
     private let storageKey = "com.hallyu.learnerModel.masteryStore"
 
     init() {
-        loadPersistedStore()
+        loadPersistedMasteryStore()
     }
 
     private func storeKey(userId: UUID, skillType: String, skillId: String) -> String {
@@ -100,7 +100,7 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
         mastery.lastAssessedAt = Date()
 
         masteryStore[key] = mastery
-        savePersistedStore()
+        persistMasteryStore()
     }
 
     func getMastery(userId: UUID, skillType: String, skillId: String) async throws -> SkillMastery? {
@@ -146,7 +146,7 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
     }
 
     /// Determine CEFR level based on aggregate mastery.
-    func computeCEFRLevel(userId: UUID) async throws -> CEFRLevel {
+    func computeCEFRLevel(userId: UUID) async throws -> AppState.CEFRLevel {
         let aggregate = aggregateMastery(userId: userId)
 
         for (level, threshold) in Self.cefrThresholds {
@@ -180,17 +180,22 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
     /// Reset mastery store (for testing).
     func reset() {
         masteryStore.removeAll()
-        savePersistedStore()
+        KeychainHelper.delete(forKey: storageKey)
     }
 
-    private func savePersistedStore() {
+    // MARK: - Persistence
+
+    private func persistMasteryStore() {
         guard let data = try? JSONEncoder().encode(masteryStore) else { return }
         KeychainHelper.save(data, forKey: storageKey)
     }
 
-    private func loadPersistedStore() {
-        guard let data = KeychainHelper.load(forKey: storageKey),
-              let decoded = try? JSONDecoder().decode([String: SkillMastery].self, from: data) else {
+    private func loadPersistedMasteryStore() {
+        guard
+            let data = KeychainHelper.load(forKey: storageKey),
+            let decoded = try? JSONDecoder().decode([String: SkillMastery].self, from: data)
+        else {
+            masteryStore = [:]
             return
         }
         masteryStore = decoded

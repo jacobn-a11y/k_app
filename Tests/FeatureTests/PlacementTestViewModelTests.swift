@@ -33,6 +33,7 @@ struct PlacementTestViewModelTests {
         #expect(types.contains(.hangulReading))
         #expect(types.contains(.vocabularyRecognition))
         #expect(types.contains(.grammarMultipleChoice))
+        #expect(types.contains(.listeningComprehension))
     }
 
     // MARK: - Answering Questions
@@ -156,6 +157,56 @@ struct PlacementTestViewModelTests {
         #expect(vm.totalAnswered == 2)
     }
 
+    @Test("Selected test set includes listening items")
+    func selectedSetIncludesListening() {
+        let vm = PlacementTestViewModel()
+        var seenTypes: Set<PlacementTestViewModel.ItemType> = []
+
+        while let item = vm.currentItem {
+            seenTypes.insert(item.type)
+            vm.submitAnswer(optionIndex: item.correctIndex)
+        }
+
+        #expect(seenTypes.contains(.listeningComprehension))
+    }
+
+    @Test("Correct response nudges difficulty upward")
+    func correctResponseRaisesDifficulty() {
+        let vm = PlacementTestViewModel()
+        guard let item = vm.currentItem else {
+            Issue.record("Should have a current item")
+            return
+        }
+
+        let currentRank = levelRank(item.cefrLevel)
+        vm.submitAnswer(optionIndex: item.correctIndex)
+        guard let nextItem = vm.currentItem else {
+            Issue.record("Should have a next item")
+            return
+        }
+
+        #expect(levelRank(nextItem.cefrLevel) >= currentRank)
+    }
+
+    @Test("Wrong response nudges difficulty downward")
+    func wrongResponseLowersDifficulty() {
+        let vm = PlacementTestViewModel()
+        guard let item = vm.currentItem else {
+            Issue.record("Should have a current item")
+            return
+        }
+
+        let currentRank = levelRank(item.cefrLevel)
+        let wrongIndex = (item.correctIndex + 1) % item.options.count
+        vm.submitAnswer(optionIndex: wrongIndex)
+        guard let nextItem = vm.currentItem else {
+            Issue.record("Should have a next item")
+            return
+        }
+
+        #expect(levelRank(nextItem.cefrLevel) <= currentRank)
+    }
+
     // MARK: - Item Validity
 
     @Test("All items have valid correct indices")
@@ -180,5 +231,16 @@ struct PlacementTestViewModelTests {
         vm.submitAnswer(optionIndex: 0)
         #expect(vm.results.first?.responseTimeMs != nil)
         #expect(vm.results.first!.responseTimeMs >= 0)
+    }
+
+    private func levelRank(_ level: String) -> Int {
+        switch level {
+        case "pre-A1": return 0
+        case "A1": return 1
+        case "A2": return 2
+        case "B1": return 3
+        case "B2": return 4
+        default: return 1
+        }
     }
 }

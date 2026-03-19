@@ -150,7 +150,10 @@ struct SyllableBlockBuilderView: View {
                     Text("Build this character:")
                         .font(.headline)
                     Text(String(target))
-                        .scaledFont(size: 60, weight: .bold)
+                        .font(.system(size: 60, weight: .bold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel("Target character \(String(target))")
+                        .accessibilityHint("Build this syllable using the tiles below.")
                 }
             }
 
@@ -194,18 +197,30 @@ struct SyllableBlockBuilderView: View {
                     viewModel.clearAll()
                 }
                 .buttonStyle(.bordered)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel("Clear syllable")
+                .accessibilityHint("Removes all jamo from the slots.")
 
                 Button("Check") {
                     viewModel.checkAnswer()
+                    if let isCorrect = viewModel.isCorrect {
+                        HapticManager.play(isCorrect ? .success : .error)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.composedCharacter == nil)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel("Check answer")
+                .accessibilityHint("Checks whether the composed syllable matches the target.")
 
                 Button("New") {
                     viewModel.clearAll()
                     viewModel.generateRandomTarget()
                 }
                 .buttonStyle(.bordered)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel("New syllable")
+                .accessibilityHint("Starts a new syllable challenge.")
             }
 
             // Feedback
@@ -234,21 +249,23 @@ struct SyllableBlockBuilderView: View {
         VStack {
             if let char = viewModel.composedCharacter {
                 Text(String(char))
-                    .scaledFont(size: 72, weight: .bold)
+                    .font(.system(size: 72, weight: .bold))
                     .frame(width: 100, height: 100)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(.secondarySystemBackground))
+                            .fill(Color.secondary.opacity(0.08))
                     )
+                    .accessibilityLabel("Composed character \(String(char))")
             } else {
                 Text("?")
-                    .scaledFont(size: 72, weight: .bold)
+                    .font(.system(size: 72, weight: .bold))
                     .foregroundStyle(.gray.opacity(0.3))
                     .frame(width: 100, height: 100)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(.secondarySystemBackground))
+                            .fill(Color.secondary.opacity(0.08))
                     )
+                    .accessibilityLabel("No character composed yet")
             }
         }
     }
@@ -263,46 +280,66 @@ struct SyllableBlockBuilderView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [5]))
                     .foregroundStyle(.blue.opacity(0.5))
-                    .frame(width: 60, height: 60)
+                    .frame(width: 68, height: 68)
 
                 if let jamo = jamo {
-                    Text(String(jamo.character))
-                        .scaledFont(size: 32, weight: .bold)
-                        .onTapGesture {
-                            viewModel.removeJamo(from: position)
-                        }
+                    Button {
+                        viewModel.removeJamo(from: position)
+                    } label: {
+                        Text(String(jamo.character))
+                            .font(.system(size: 32, weight: .bold))
+                            .frame(width: 68, height: 68)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(String(jamo.character)) in the \(label.lowercased()) slot")
+                    .accessibilityHint("Double tap to remove it from this slot.")
+                } else {
+                    Text("Drop here")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary.opacity(0.8))
+                        .frame(width: 68, height: 68)
+                        .accessibilityLabel("\(label) slot is empty")
+                        .accessibilityHint("Drag a jamo here or double tap a tile to place it.")
                 }
             }
+            .contentShape(Rectangle())
             .dropDestination(for: String.self) { items, _ in
                 guard let id = items.first,
                       let entry = HangulData.jamo(for: id) else { return false }
                 viewModel.placeJamo(entry, in: position)
                 return true
             }
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(
                 position == .initial ? "Initial consonant slot" :
                 position == .medial ? "Medial vowel slot" :
                 "Final consonant slot"
             )
+            .accessibilityValue(jamo.map { String($0.character) } ?? "Empty")
         }
     }
 
     private func jamoTile(_ jamo: JamoEntry) -> some View {
-        Text(String(jamo.character))
-            .scaledFont(size: 24, weight: .medium)
-            .frame(width: 48, height: 48)
-            .background(Color(.tertiarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .draggable(jamo.id)
-            .onTapGesture {
-                // Auto-place: consonants go to initial/final, vowels go to medial
-                if jamo.positionRules.contains(.medial) {
-                    viewModel.placeJamo(jamo, in: .medial)
-                } else if viewModel.initialSlot == nil && jamo.positionRules.contains(.initial) {
-                    viewModel.placeJamo(jamo, in: .initial)
-                } else if jamo.positionRules.contains(.final_) {
-                    viewModel.placeJamo(jamo, in: .final_)
-                }
+        Button {
+            // Auto-place: consonants go to initial/final, vowels go to medial
+            if jamo.positionRules.contains(.medial) {
+                viewModel.placeJamo(jamo, in: .medial)
+            } else if viewModel.initialSlot == nil && jamo.positionRules.contains(.initial) {
+                viewModel.placeJamo(jamo, in: .initial)
+            } else if jamo.positionRules.contains(.final_) {
+                viewModel.placeJamo(jamo, in: .final_)
             }
+        } label: {
+            Text(String(jamo.character))
+                .font(.system(size: 24, weight: .medium))
+                .frame(width: 48, height: 48)
+                .background(Color(.tertiarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .draggable(jamo.id)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityLabel(KoreanAccessibility.jamoDescription(jamo.character))
+        .accessibilityHint("Double tap to add this jamo to the syllable builder. You can also drag it.")
     }
 }

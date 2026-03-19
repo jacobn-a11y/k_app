@@ -28,7 +28,14 @@ struct StrokeOrderView: View {
             Text(String(character))
                 .scaledFont(size: 32, weight: .bold)
                 .foregroundStyle(.secondary)
+                .frame(minWidth: 44, minHeight: 44)
                 .accessibilityLabel("Jamo character \(String(character))")
+                .accessibilityValue(strokeProgressValue)
+                .accessibilityHint(
+                    reduceMotion
+                        ? "Reduced motion is enabled, so the full stroke order is shown at once."
+                        : "Shows the stroke order for this character."
+                )
 
             // Canvas
             Canvas { context, size in
@@ -75,15 +82,22 @@ struct StrokeOrderView: View {
                     .fill(Color(.systemBackground))
                     .shadow(radius: 2)
             )
+            .accessibilityHidden(true)
 
             // Controls
             HStack(spacing: 20) {
                 Button(action: replay) {
                     Label(isAnimating ? "Playing..." : "Replay", systemImage: "arrow.counterclockwise")
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
                 .disabled(isAnimating)
                 .accessibilityLabel("Replay stroke animation")
+                .accessibilityHint(
+                    reduceMotion
+                        ? "Resets the character display without animation."
+                        : "Plays the stroke order animation again."
+                )
 
                 Picker("Speed", selection: $animationSpeed) {
                     ForEach(AnimationSpeed.allCases, id: \.self) { speed in
@@ -91,8 +105,9 @@ struct StrokeOrderView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 140)
+                .frame(width: 140, minHeight: 44)
                 .accessibilityLabel("Animation speed")
+                .accessibilityHint("Choose how fast the stroke animation plays.")
             }
         }
         .onAppear {
@@ -154,6 +169,12 @@ struct StrokeOrderView: View {
 
     private func startAnimation() {
         guard !isAnimating else { return }
+        if reduceMotion {
+            isAnimating = false
+            currentStroke = strokePaths.count
+            animationProgress = 1
+            return
+        }
         isAnimating = true
         currentStroke = 0
         animationProgress = 0
@@ -161,6 +182,7 @@ struct StrokeOrderView: View {
     }
 
     private func animateNextStroke() {
+        guard !reduceMotion else { return }
         guard currentStroke < strokePaths.count else {
             isAnimating = false
             return
@@ -178,10 +200,24 @@ struct StrokeOrderView: View {
     }
 
     private func replay() {
+        if reduceMotion {
+            isAnimating = false
+            currentStroke = strokePaths.count
+            animationProgress = 1
+            return
+        }
         isAnimating = false
         currentStroke = 0
         animationProgress = 0
         startAnimation()
+    }
+
+    private var strokeProgressValue: String {
+        guard !strokePaths.isEmpty else { return "No stroke data available" }
+        if reduceMotion {
+            return "Stroke order shown statically"
+        }
+        return "Stroke \(min(currentStroke + 1, strokePaths.count)) of \(strokePaths.count)"
     }
 }
 

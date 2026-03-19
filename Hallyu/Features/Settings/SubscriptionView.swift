@@ -26,7 +26,7 @@ struct SubscriptionView: View {
             .padding()
         }
         .navigationTitle("Upgrade")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitleDisplayMode()
         .task { await loadProducts() }
         .alert("Purchase Error", isPresented: $showError) {
             Button("OK") {}
@@ -252,7 +252,7 @@ struct TierCard: View {
                     .fontWeight(.medium)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color(.systemGray5))
+                    .background(Color.gray.opacity(0.2))
                     .foregroundStyle(.secondary)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
@@ -276,11 +276,22 @@ struct TierCard: View {
             }
         }
         .padding()
-        .background(Color(.systemGray6))
+        .background(Color.gray.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isPopular ? Color.blue : .clear, lineWidth: 2)
         )
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func inlineNavigationTitleDisplayMode() -> some View {
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        self.navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
     }
 }

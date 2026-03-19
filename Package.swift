@@ -12,22 +12,25 @@ let package = Package(
             targets: ["HallyuCore"]
         )
     ],
+    dependencies: [
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.17.0")
+    ],
     targets: [
         .target(
             name: "HallyuCore",
             path: "Hallyu",
             exclude: [
                 "Resources/Assets.xcassets",
-                "Resources/Fonts",
-                "Resources/Audio",
-                "Resources/HangulStrokeData",
                 "App/HallyuApp.swift",
                 "Tests"
             ]
         ),
         .testTarget(
             name: "HallyuTests",
-            dependencies: ["HallyuCore"],
+            dependencies: [
+                "HallyuCore",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
+            ],
             path: "Tests"
         ),
         .testTarget(

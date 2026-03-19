@@ -1,5 +1,4 @@
 import SwiftUI
-import AVFoundation
 
 /// Step 5.3: Shadowing practice - user listens to and repeats key sentences.
 struct ShadowingView: View {
@@ -7,10 +6,9 @@ struct ShadowingView: View {
     @State private var isRecording: Bool = false
     @State private var lastTranscript: String = ""
     @State private var lastConfidence: Double = 0
-    @State private var lastPronunciationScore: PronunciationScore?
     @State private var showFeedback: Bool = false
-    @State private var lastClaudeFeedback: PronunciationFeedback?
-    private let speechSynthesizer = AVSpeechSynthesizer()
+    @State private var confidenceHistory: [Double] = []
+    @State private var waveformPhase: Double = 0
 
     var body: some View {
         VStack(spacing: 16) {
@@ -21,6 +19,15 @@ struct ShadowingView: View {
             }
         }
         .padding()
+        .task(id: isRecording) {
+            guard isRecording else { return }
+            while !Task.isCancelled {
+                await MainActor.run {
+                    waveformPhase += 0.16
+                }
+                try? await Task.sleep(nanoseconds: 90_000_000)
+            }
+        }
     }
 
     // MARK: - Sentence View
@@ -58,12 +65,12 @@ struct ShadowingView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(.systemGray6))
+                    .fill(Color.secondary.opacity(0.08))
             )
 
             // Play native audio button
             Button {
-                playNativeSentence(sentence.korean)
+                // Play the segment from the media
             } label: {
                 Label("Listen to Native", systemImage: "speaker.wave.2.fill")
                     .frame(maxWidth: .infinity)
@@ -80,28 +87,28 @@ struct ShadowingView: View {
 
             Spacer()
         }
+        .task(id: sentence.id) {
+            resetForNewSentence()
+        }
     }
 
     // MARK: - Recording
 
     private func recordingArea(sentence: MediaLessonViewModel.ShadowingSentence) -> some View {
         VStack(spacing: 12) {
-            // Waveform placeholder
-            if isRecording {
-                waveformIndicator
-            }
+            waveformIndicator(for: sentence)
 
             // Record button
             Button {
                 if isRecording {
-                    stopRecording(targetSentence: sentence.korean)
+                    stopRecording()
                 } else {
                     startRecording()
                 }
             } label: {
                 HStack {
                     Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                        .scaledFont(size: 32)
+                        .font(.system(size: 32))
                     Text(isRecording ? "Stop Recording" : "Record Your Voice")
                         .fontWeight(.medium)
                 }
@@ -113,16 +120,51 @@ struct ShadowingView: View {
         }
     }
 
-    private var waveformIndicator: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<20, id: \.self) { i in
+    private func waveformIndicator(for sentence: MediaLessonViewModel.ShadowingSentence) -> some View {
+        let heights = waveformHeights(for: sentence)
+        let energy = confidenceEnergy(for: sentence)
+
+        return HStack(spacing: 3) {
+            ForEach(Array(heights.enumerated()), id: \.offset) { index, height in
                 RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.accentColor)
-                    .frame(width: 3, height: CGFloat.random(in: 8...32))
+                    .fill(barColor(for: sentence, index: index, energy: energy))
+                    .frame(width: 3, height: height)
             }
         }
         .frame(height: 40)
         .padding(.horizontal)
+        .opacity(isRecording ? 1.0 : 0.8)
+        .animation(.easeInOut(duration: 0.18), value: waveformPhase)
+    }
+
+    private func waveformHeights(for sentence: MediaLessonViewModel.ShadowingSentence) -> [CGFloat] {
+        let samples = waveformSamples(for: sentence)
+        let seedValue = sentence.id.uuidString.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        let seed = Double(seedValue % 997) / 997.0
+
+        return (0..<20).map { index in
+            let sample = samples[index % samples.count]
+            let phase = waveformPhase + seed * 5.5 + Double(index) * 0.48
+            let motion = isRecording ? (sin(phase) * 0.16 + cos(phase * 0.37) * 0.08) : 0
+            let mixed = clamp(sample * 0.7 + confidenceEnergy(for: sentence) * 0.25 + 0.12 + motion, lower: 0.0, upper: 1.0)
+            return 8 + CGFloat(mixed * 24)
+        }
+    }
+
+    private func waveformSamples(for sentence: MediaLessonViewModel.ShadowingSentence) -> [Double] {
+        let history = [sentence.bestConfidence] + confidenceHistory
+        return history.isEmpty ? [0.25] : history.map { clamp($0, lower: 0.05, upper: 1.0) }
+    }
+
+    private func confidenceEnergy(for sentence: MediaLessonViewModel.ShadowingSentence) -> Double {
+        let samples = waveformSamples(for: sentence)
+        return samples.reduce(0, +) / Double(samples.count)
+    }
+
+    private func barColor(for sentence: MediaLessonViewModel.ShadowingSentence, index: Int, energy: Double) -> Color {
+        let baseOpacity = clamp(0.28 + energy * 0.45 + (isRecording ? 0.12 : 0), lower: 0.25, upper: 0.9)
+        let variance = Double((index % 5)) * 0.05
+        return Color.accentColor.opacity(clamp(baseOpacity - variance, lower: 0.2, upper: 0.95))
     }
 
     // MARK: - Feedback
@@ -148,32 +190,24 @@ struct ShadowingView: View {
                 }
                 Text(lastTranscript.isEmpty ? "(no speech detected)" : lastTranscript)
                     .font(.body)
-                    .foregroundStyle((lastPronunciationScore?.overall ?? lastConfidence) >= 0.7 ? .green : .orange)
+                    .foregroundStyle(lastConfidence >= 0.7 ? .green : .orange)
             }
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemGray6))
+                    .fill(Color.secondary.opacity(0.08))
             )
 
             // Confidence score
             HStack {
-                let overall = lastPronunciationScore?.overall ?? lastConfidence
-                Text("Match: \(Int(overall * 100))%")
+                Text("Match: \(Int(lastConfidence * 100))%")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundStyle(overall >= 0.7 ? .green : .orange)
+                    .foregroundStyle(lastConfidence >= 0.7 ? .green : .orange)
 
                 Spacer()
 
                 confidenceBadge
-            }
-
-            if let score = lastPronunciationScore {
-                Text("Jamo \(Int(score.jamoAccuracy * 100))% • Prosody \(Int(score.prosodyAccuracy * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Action buttons
@@ -182,8 +216,6 @@ struct ShadowingView: View {
                     showFeedback = false
                     lastTranscript = ""
                     lastConfidence = 0
-                    lastPronunciationScore = nil
-                    lastClaudeFeedback = nil
                 } label: {
                     Label("Try Again", systemImage: "arrow.counterclockwise")
                         .frame(maxWidth: .infinity)
@@ -195,39 +227,20 @@ struct ShadowingView: View {
                     showFeedback = false
                     lastTranscript = ""
                     lastConfidence = 0
-                    lastPronunciationScore = nil
-                    lastClaudeFeedback = nil
                 } label: {
                     Text(viewModel.shadowingCurrentIndex + 1 < viewModel.shadowingSentences.count ? "Next" : "Finish")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
             }
-
-            if let claudeFeedback = lastClaudeFeedback {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(claudeFeedback.feedback)
-                        .font(.subheadline)
-                    if let tip = claudeFeedback.articulatoryTip {
-                        Text("Tip: \(tip)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
         }
     }
 
     private var confidenceBadge: some View {
-        let overall = lastPronunciationScore?.overall ?? lastConfidence
         let (text, color): (String, Color) = {
-            if overall >= 0.9 { return ("Excellent", .green) }
-            if overall >= 0.7 { return ("Good", .blue) }
-            if overall >= 0.5 { return ("Fair", .orange) }
+            if lastConfidence >= 0.9 { return ("Excellent", .green) }
+            if lastConfidence >= 0.7 { return ("Good", .blue) }
+            if lastConfidence >= 0.5 { return ("Fair", .orange) }
             return ("Keep Trying", .red)
         }()
 
@@ -245,50 +258,30 @@ struct ShadowingView: View {
 
     private func startRecording() {
         isRecording = true
+        showFeedback = false
         Task {
             _ = try? await viewModel.audioService.startRecording()
         }
     }
 
-    private func stopRecording(targetSentence: String) {
+    private func stopRecording() {
         isRecording = false
         Task {
             guard let audioURL = try? await viewModel.audioService.stopRecording() else { return }
             let result = try? await viewModel.speechRecognition.recognizeSpeech(from: audioURL)
-            let claudeFeedback = await viewModel.getPronunciationFeedback(
-                transcript: result?.transcript ?? "",
-                target: targetSentence
-            )
 
             await MainActor.run {
-                let transcript = result?.transcript ?? ""
-                let asrConfidence = result?.confidence ?? 0
-                let score = PronunciationScorer.evaluate(
-                    transcript: transcript,
-                    target: targetSentence,
-                    asrConfidence: asrConfidence
-                )
-
-                lastTranscript = transcript
-                lastConfidence = score.overall
-                lastPronunciationScore = score
-                lastClaudeFeedback = claudeFeedback
+                lastTranscript = result?.transcript ?? ""
+                lastConfidence = result?.confidence ?? 0
+                confidenceHistory.append(lastConfidence)
+                confidenceHistory = Array(confidenceHistory.suffix(6))
                 showFeedback = true
                 viewModel.recordShadowingAttempt(
                     transcript: lastTranscript,
-                    confidence: score.overall
+                    confidence: lastConfidence
                 )
             }
         }
-    }
-
-    private func playNativeSentence(_ text: String) {
-        guard !text.isEmpty else { return }
-        speechSynthesizer.stopSpeaking(at: .immediate)
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
-        utterance.rate = 0.42
-        speechSynthesizer.speak(utterance)
     }
 
     // MARK: - Completed
@@ -298,8 +291,8 @@ struct ShadowingView: View {
             Spacer()
 
             Image(systemName: "waveform.circle.fill")
-                .scaledFont(size: 64)
-                .foregroundStyle(.accentColor)
+                .font(.system(size: 64))
+                .foregroundStyle(Color.accentColor)
 
             Text("Shadowing Complete!")
                 .font(.title2)
@@ -319,5 +312,18 @@ struct ShadowingView: View {
 
             Spacer()
         }
+    }
+
+    private func resetForNewSentence() {
+        isRecording = false
+        lastTranscript = ""
+        lastConfidence = 0
+        showFeedback = false
+        confidenceHistory = []
+        waveformPhase = 0
+    }
+
+    private func clamp(_ value: Double, lower: Double, upper: Double) -> Double {
+        min(max(value, lower), upper)
     }
 }

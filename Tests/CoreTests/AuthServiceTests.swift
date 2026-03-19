@@ -17,6 +17,7 @@ struct AuthServiceTests {
             .sessionExpired,
             .notAuthenticated,
             .appleSignInFailed,
+            .appleIdentityTokenMissing,
             .unknown("test error"),
         ]
         for error in errors {
@@ -122,5 +123,41 @@ struct AuthServiceTests {
         let decoded = try JSONDecoder().decode(EmailAuthRequest.self, from: data)
         #expect(decoded.email == "test@test.com")
         #expect(decoded.password == "password123")
+    }
+
+    @Test("AuthService requires Apple token for environment fallback sign in")
+    func appleSignInWithoutEnvironmentTokenFails() async {
+        let service = AuthService(apiClient: APIClient(baseURL: URL(string: "https://example.com")!))
+
+        do {
+            _ = try await service.signInWithApple()
+            Issue.record("Expected signInWithApple to fail without an Apple token")
+        } catch let error as AuthError {
+            if case .appleIdentityTokenMissing = error {
+                #expect(true)
+            } else {
+                Issue.record("Expected appleIdentityTokenMissing, got \(error)")
+            }
+        } catch {
+            Issue.record("Expected AuthError.appleIdentityTokenMissing, got \(error)")
+        }
+    }
+
+    @Test("AuthService rejects empty Apple ID token exchange")
+    func appleTokenExchangeRejectsEmptyToken() async {
+        let service = AuthService(apiClient: APIClient(baseURL: URL(string: "https://example.com")!))
+
+        do {
+            _ = try await service.signInWithApple(idToken: "   ", nonce: "nonce")
+            Issue.record("Expected signInWithApple(idToken:nonce:) to reject blank token")
+        } catch let error as AuthError {
+            if case .appleIdentityTokenMissing = error {
+                #expect(true)
+            } else {
+                Issue.record("Expected appleIdentityTokenMissing, got \(error)")
+            }
+        } catch {
+            Issue.record("Expected AuthError.appleIdentityTokenMissing, got \(error)")
+        }
     }
 }

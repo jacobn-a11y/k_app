@@ -1,19 +1,16 @@
 import SwiftUI
-import SwiftData
 
 struct HangulLessonView: View {
     @State private var viewModel: HangulLessonViewModel
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @Environment(AppState.self) private var appState
-    @State private var didPersistReviewItems = false
 
     init(groupIndex: Int, services: ServiceContainer) {
         _viewModel = State(initialValue: HangulLessonViewModel(
             groupIndex: groupIndex,
             claudeService: services.claude,
             speechService: services.speechRecognition,
-            audioService: services.audio
+            audioService: services.audio,
+            subscriptionTier: services.subscription.currentTier
         ))
     }
 
@@ -22,6 +19,8 @@ struct HangulLessonView: View {
             VStack {
                 if viewModel.isLessonComplete {
                     lessonCompleteView
+                } else if viewModel.isSpotInTheWildActive, let spotTask = viewModel.spotInTheWildTask {
+                    spotInTheWildSection(task: spotTask)
                 } else if let jamo = viewModel.currentJamo {
                     VStack(spacing: 0) {
                         // Progress bar
@@ -39,7 +38,7 @@ struct HangulLessonView: View {
                             jamo: jamo,
                             step: viewModel.currentStep,
                             pronunciationFeedback: viewModel.pronunciationFeedback,
-                            pronunciationScore: viewModel.pronunciationScore,
+                            pronunciationCoachErrorMessage: viewModel.pronunciationCoachErrorMessage,
                             recognitionResult: viewModel.recognitionResult,
                             isRecording: viewModel.isRecording,
                             onAdvance: { viewModel.advanceStep() },
@@ -58,7 +57,7 @@ struct HangulLessonView: View {
                 }
             }
             .navigationTitle(viewModel.group.name)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitleDisplayMode()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -72,7 +71,7 @@ struct HangulLessonView: View {
             Spacer()
 
             Image(systemName: "star.fill")
-                .scaledFont(size: 60)
+                .font(.system(size: 60))
                 .foregroundStyle(.yellow)
 
             Text("Lesson Complete!")
@@ -87,6 +86,12 @@ struct HangulLessonView: View {
                 Text("Score: \(Int(viewModel.overallScore * 100))%")
                     .font(.title)
                     .fontWeight(.bold)
+
+                if let spotScore = viewModel.spotInTheWildScore {
+                    Text("Spot in the Wild: \(Int(spotScore * 100))%")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
 
                 ForEach(Array(viewModel.scores.values.sorted { $0.jamoId < $1.jamoId }), id: \.jamoId) { score in
                     HStack {
@@ -105,7 +110,7 @@ struct HangulLessonView: View {
                 }
             }
             .padding()
-            .background(Color(.secondarySystemBackground))
+            .background(Color.secondary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding(.horizontal)
 
@@ -123,36 +128,41 @@ struct HangulLessonView: View {
             .padding(.horizontal)
         }
         .padding()
-        .onAppear {
-            persistReviewItemsIfNeeded()
-        }
     }
 
-    private func persistReviewItemsIfNeeded() {
-        guard !didPersistReviewItems else { return }
-        didPersistReviewItems = true
+    private func spotInTheWildSection(task: SpotInTheWildTask) -> some View {
+        VStack(spacing: 16) {
+            Text("Spot It in the Wild")
+                .font(.title2.bold())
+                .padding(.top, 12)
 
-        let userId = appState.currentUserId ?? UUID()
-        if appState.currentUserId == nil {
-            appState.currentUserId = userId
-        }
+            Text("Find every \(String(task.targetJamo)) in this real-media snapshot to finish the group.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
 
-        let reviewItems = viewModel.createReviewItems(userId: userId)
-        let existing = (try? modelContext.fetch(FetchDescriptor<ReviewItem>())) ?? []
-        let existingKeys = Set(existing.map { "\($0.userId.uuidString)_\($0.itemType)_\($0.itemId.uuidString)" })
-
-        for item in reviewItems {
-            let key = "\(item.userId.uuidString)_\(item.itemType)_\(item.itemId.uuidString)"
-            if !existingKeys.contains(key) {
-                modelContext.insert(item)
+            SpotInTheWildView(task: task) { score in
+                viewModel.completeSpotInTheWild(with: score)
             }
+            .padding(.bottom, 8)
         }
+        .padding(.horizontal)
+    }
+}
 
-        if let profile = (try? modelContext.fetch(FetchDescriptor<LearnerProfile>()))?.first(where: { $0.userId == userId }) {
-            profile.hangulCompleted = true
-            profile.updatedAt = Date()
-        }
+private struct InlineNavigationTitleDisplayModeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.navigationBarTitleDisplayMode(.inline)
+        #else
+        content
+        #endif
+    }
+}
 
-        try? modelContext.save()
+private extension View {
+    func inlineNavigationTitleDisplayMode() -> some View {
+        modifier(InlineNavigationTitleDisplayModeModifier())
     }
 }

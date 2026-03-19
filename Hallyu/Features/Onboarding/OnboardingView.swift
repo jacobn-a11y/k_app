@@ -1,21 +1,12 @@
 import SwiftUI
+import SwiftData
 
 struct OnboardingView: View {
     @Environment(ServiceContainer.self) private var services
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var viewModel = OnboardingViewModel()
-    @State private var firstLessonPhase: FirstLessonPhase = .idle
-    @State private var firstLessonTranscript: String = ""
-    @State private var firstLessonScore: PronunciationScore?
-    @State private var firstLessonErrorMessage: String?
     let onComplete: (OnboardingResult) -> Void
-
-    private enum FirstLessonPhase {
-        case idle
-        case recording
-        case processing
-        case completed
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,7 +47,8 @@ struct OnboardingView: View {
             set: { if !$0 { viewModel.dismissPlacementTest() } }
         )) {
             PlacementTestView { cefrLevel in
-                viewModel.applyPlacementResult(cefrLevel: cefrLevel)
+                let result = viewModel.completePlacementAndFinish(cefrLevel: cefrLevel)
+                onComplete(result)
             }
             .environment(services)
         }
@@ -206,11 +198,11 @@ struct OnboardingView: View {
         VStack(spacing: 32) {
             Spacer()
 
-            Text("\u{314F}")
+            Text(viewModel.firstLessonPrompt)
                 .scaledFont(size: 120, weight: .regular)
                 .padding()
 
-            Text("This is \u{314F} (ah)")
+            Text("This is \(viewModel.firstLessonPrompt) (ah)")
                 .font(.title)
                 .fontWeight(.bold)
 
@@ -218,57 +210,107 @@ struct OnboardingView: View {
                 .font(.body)
                 .foregroundStyle(.secondary)
 
-            Button {
-                toggleFirstLessonRecording()
-            } label: {
-                HStack {
-                    Image(systemName: firstLessonButtonIcon)
-                    Text(firstLessonButtonText)
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(firstLessonButtonColor)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .disabled(firstLessonPhase == .processing)
-            .padding(.horizontal)
-
-            if firstLessonPhase == .processing {
-                ProgressView("Checking pronunciation...")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            if !firstLessonTranscript.isEmpty {
-                VStack(spacing: 4) {
-                    Text("We heard: \(firstLessonTranscript)")
-                        .font(.subheadline)
-                    if let score = firstLessonScore {
-                        Text("Pronunciation match: \(Int(score.overall * 100))%")
-                            .font(.caption)
-                            .foregroundStyle(score.overall >= 0.72 ? .green : .orange)
-                    }
-                }
-            }
-
-            if viewModel.hasSpokenFirstJamo {
-                Text("Amazing! Let's keep going.")
-                    .font(.subheadline)
-                    .foregroundStyle(.green)
-                    .transition(.opacity)
-            } else if let firstLessonErrorMessage {
-                Text(firstLessonErrorMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.orange)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
+            firstLessonMicCard
+                .padding(.horizontal)
 
             Spacer()
         }
         .animation(reduceMotion ? nil : .easeInOut, value: viewModel.hasSpokenFirstJamo)
+    }
+
+    private var firstLessonMicCard: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(.secondarySystemBackground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(
+                                viewModel.firstLessonStatusIsSuccess ? Color.green.opacity(0.4) : Color.blue.opacity(0.2),
+                                lineWidth: 1
+                            )
+                    )
+
+                VStack(spacing: 12) {
+                    if viewModel.firstLessonIsRecording {
+                        Image(systemName: firstLessonStatusIcon)
+                            .font(.title2)
+                            .foregroundStyle(firstLessonStatusColor)
+                            .symbolEffect(.pulse.byLayer, options: .repeating)
+                    } else {
+                        Image(systemName: firstLessonStatusIcon)
+                            .font(.title2)
+                            .foregroundStyle(firstLessonStatusColor)
+                    }
+
+                    Text(viewModel.firstLessonStatusMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(viewModel.firstLessonStatusIsError ? .red : .secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+
+                    if viewModel.firstLessonIsProcessing {
+                        ProgressView()
+                            .padding(.top, 4)
+                    }
+
+                    if !viewModel.firstLessonTranscript.isEmpty {
+                        VStack(spacing: 4) {
+                            Text("Heard")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(viewModel.firstLessonTranscript)
+                                .font(.headline)
+                            Text("\(Int(viewModel.firstLessonConfidence * 100))% confidence")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                .padding()
+            }
+
+            Button {
+                Task {
+                    if viewModel.firstLessonIsRecording {
+                        await viewModel.stopFirstLessonRecording(
+                            audioService: services.audio,
+                            speechRecognition: services.speechRecognition
+                        )
+                    } else {
+                        await viewModel.startFirstLessonRecording(
+                            audioService: services.audio,
+                            speechRecognition: services.speechRecognition
+                        )
+                    }
+                }
+            } label: {
+                HStack {
+                    Image(systemName: viewModel.firstLessonIsRecording ? "stop.circle.fill" : "mic.fill")
+                    Text(firstLessonButtonTitle)
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(viewModel.firstLessonStatusIsSuccess ? Color.green : Color.blue)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .disabled(viewModel.firstLessonIsProcessing)
+
+            if viewModel.firstLessonStatusIsSuccess {
+                Text("Great! You can move on.")
+                    .font(.subheadline)
+                    .foregroundStyle(.green)
+            } else if viewModel.firstLessonStatusIsError {
+                Button("Try again") {
+                    viewModel.resetFirstLessonMicState()
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - Navigation
@@ -319,105 +361,43 @@ struct OnboardingView: View {
         }
     }
 
-    private func toggleFirstLessonRecording() {
-        switch firstLessonPhase {
+    private var firstLessonButtonTitle: String {
+        if viewModel.firstLessonIsRecording {
+            return "Stop recording"
+        }
+        if viewModel.firstLessonStatusIsSuccess {
+            return "Record again"
+        }
+        return "Record pronunciation"
+    }
+
+    private var firstLessonStatusIcon: String {
+        switch viewModel.firstLessonMicState {
         case .idle:
-            startFirstLessonRecording()
+            return "mic.fill"
         case .recording:
-            stopAndValidateFirstLessonRecording()
+            return "waveform"
         case .processing:
-            break
-        case .completed:
-            break
+            return "hourglass"
+        case .success:
+            return "checkmark.circle.fill"
+        case .error:
+            return "exclamationmark.triangle.fill"
         }
     }
 
-    private var firstLessonButtonText: String {
-        switch firstLessonPhase {
-        case .idle: return "Tap to pronounce"
-        case .recording: return "Stop recording"
-        case .processing: return "Analyzing..."
-        case .completed: return "You just spoke Korean!"
-        }
-    }
-
-    private var firstLessonButtonIcon: String {
-        switch firstLessonPhase {
-        case .idle: return "mic.fill"
-        case .recording: return "stop.circle.fill"
-        case .processing: return "waveform"
-        case .completed: return "checkmark.circle.fill"
-        }
-    }
-
-    private var firstLessonButtonColor: Color {
-        switch firstLessonPhase {
-        case .idle: return .blue
-        case .recording: return .red
-        case .processing: return .blue
-        case .completed: return .green
-        }
-    }
-
-    private func startFirstLessonRecording() {
-        firstLessonErrorMessage = nil
-        firstLessonTranscript = ""
-        firstLessonScore = nil
-
-        Task {
-            do {
-                _ = try await services.audio.startRecording()
-                await MainActor.run {
-                    firstLessonPhase = .recording
-                }
-            } catch {
-                await MainActor.run {
-                    firstLessonPhase = .idle
-                    firstLessonErrorMessage = "Couldn't start recording. Please check microphone permissions."
-                }
-            }
-        }
-    }
-
-    private func stopAndValidateFirstLessonRecording() {
-        Task {
-            await MainActor.run {
-                firstLessonPhase = .processing
-                firstLessonErrorMessage = nil
-            }
-
-            do {
-                let audioURL = try await services.audio.stopRecording()
-                let isAuthorized = await services.speechRecognition.requestAuthorization()
-                guard isAuthorized else {
-                    throw SpeechRecognitionError.notAuthorized
-                }
-
-                let result = try await services.speechRecognition.recognizeSpeech(from: audioURL)
-                let score = PronunciationScorer.evaluate(
-                    transcript: result.transcript,
-                    target: "아",
-                    asrConfidence: result.confidence
-                )
-                let passed = score.overall >= 0.72 && score.jamoAccuracy >= 0.70
-
-                await MainActor.run {
-                    firstLessonTranscript = result.transcript
-                    firstLessonScore = score
-                    if passed {
-                        viewModel.markFirstJamoSpoken()
-                        firstLessonPhase = .completed
-                    } else {
-                        firstLessonPhase = .idle
-                        firstLessonErrorMessage = "Close. Try one more time and say \"아\" clearly."
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    firstLessonPhase = .idle
-                    firstLessonErrorMessage = "We couldn't verify that attempt. Please try again."
-                }
-            }
+    private var firstLessonStatusColor: Color {
+        switch viewModel.firstLessonMicState {
+        case .success:
+            return .green
+        case .error:
+            return .red
+        case .recording:
+            return .blue
+        case .processing:
+            return .orange
+        case .idle:
+            return .secondary
         }
     }
 }

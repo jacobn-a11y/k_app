@@ -12,6 +12,9 @@ final class HangulLessonViewModel {
     private(set) var isLessonComplete: Bool = false
     private(set) var scores: [String: JamoScore] = [:]
     private(set) var overallScore: Double = 0
+    private(set) var spotInTheWildTask: SpotInTheWildTask?
+    private(set) var isSpotInTheWildActive: Bool = false
+    private(set) var spotInTheWildScore: Double?
 
     let group: LessonGroup
     let jamoEntries: [JamoEntry]
@@ -19,10 +22,11 @@ final class HangulLessonViewModel {
     private let claudeService: ClaudeServiceProtocol
     private let speechService: SpeechRecognitionServiceProtocol
     private let audioService: AudioServiceProtocol
+    private let subscriptionTier: AppState.SubscriptionTier
 
     // Pronunciation state
     var pronunciationFeedback: PronunciationFeedback?
-    var pronunciationScore: PronunciationScore?
+    private(set) var pronunciationCoachErrorMessage: String?
     var isRecording: Bool = false
     var recognitionResult: SpeechRecognitionResult?
     var traceScore: Double?
@@ -88,12 +92,14 @@ final class HangulLessonViewModel {
         groupIndex: Int,
         claudeService: ClaudeServiceProtocol,
         speechService: SpeechRecognitionServiceProtocol,
-        audioService: AudioServiceProtocol
+        audioService: AudioServiceProtocol,
+        subscriptionTier: AppState.SubscriptionTier = .core
     ) {
         self.currentGroupIndex = groupIndex
         self.claudeService = claudeService
         self.speechService = speechService
         self.audioService = audioService
+        self.subscriptionTier = subscriptionTier
 
         guard groupIndex < HangulData.lessonGroups.count else {
             self.group = LessonGroup(id: 0, name: "Empty", description: "", jamoIds: [])
@@ -119,7 +125,7 @@ final class HangulLessonViewModel {
             // Skip Claude coaching if pronunciation was good
             let nextStep = allSteps[nextIndex]
             if nextStep == .claudeCoaching {
-                let shouldSkipCoaching = pronunciationScore.map { $0.overall >= 0.78 } ?? true
+                let shouldSkipCoaching = recognitionResult.map { $0.confidence >= 0.8 } ?? true
                 if shouldSkipCoaching {
                     finishCurrentJamo(jamo: jamo)
                     return
@@ -154,25 +160,31 @@ final class HangulLessonViewModel {
         recognitionResult = result
 
         guard let jamo = currentJamo else { return }
-        let score = PronunciationScorer.evaluate(
-            transcript: result.transcript,
-            target: String(jamo.character),
-            asrConfidence: result.confidence
-        )
-        pronunciationScore = score
 
         var jamoScore = scores[jamo.id] ?? JamoScore(jamoId: jamo.id, traceAccuracy: 0, pronunciationAccuracy: 0, attempts: 0)
-        jamoScore.pronunciationAccuracy = score.overall
+        jamoScore.pronunciationAccuracy = result.confidence
         jamoScore.attempts += 1
         scores[jamo.id] = jamoScore
 
-        // If pronunciation remains weak, get Claude coaching.
-        if score.overall < 0.78 || score.jamoAccuracy < 0.72 {
+        // If confidence is low, get Claude coaching
+        if result.confidence < 0.8 {
+            pronunciationCoachErrorMessage = nil
+            do {
+                try await claudeService.checkTierAllowed(tier: subscriptionTier)
+            } catch {
+                pronunciationFeedback = nil
+                pronunciationCoachErrorMessage = claudeErrorMessage(for: error)
+                return
+            }
+
             let feedback = try await claudeService.getPronunciationFeedback(
                 transcript: result.transcript,
                 target: String(jamo.character)
             )
             pronunciationFeedback = feedback
+            pronunciationCoachErrorMessage = nil
+        } else {
+            pronunciationCoachErrorMessage = nil
         }
     }
 
@@ -190,7 +202,7 @@ final class HangulLessonViewModel {
 
     private func finishCurrentJamo(jamo: JamoEntry) {
         pronunciationFeedback = nil
-        pronunciationScore = nil
+        pronunciationCoachErrorMessage = nil
         recognitionResult = nil
         traceScore = nil
 
@@ -198,26 +210,64 @@ final class HangulLessonViewModel {
             currentJamoIndex += 1
             currentStep = .strokeAnimation
         } else {
-            isLessonComplete = true
-            calculateOverallScore()
+            if let task = selectSpotInTheWildTask() {
+                spotInTheWildTask = task
+                isSpotInTheWildActive = true
+            } else {
+                isLessonComplete = true
+                calculateOverallScore()
+            }
         }
     }
 
     private func calculateOverallScore() {
-        guard !scores.isEmpty else {
+        var scoreComponents = scores.values.map(\.combined)
+        if let spotInTheWildScore {
+            scoreComponents.append(spotInTheWildScore)
+        }
+
+        guard !scoreComponents.isEmpty else {
             overallScore = 0
             return
         }
-        overallScore = scores.values.reduce(0.0) { $0 + $1.combined } / Double(scores.count)
+        overallScore = scoreComponents.reduce(0.0, +) / Double(scoreComponents.count)
+    }
+
+    private func claudeErrorMessage(for error: Error) -> String {
+        if case ClaudeServiceError.tierLimitReached = error {
+            return "Daily interaction limit reached for your subscription tier. Upgrade to continue."
+        }
+        return error.localizedDescription
     }
 
     /// Create ReviewItems for completed jamo. Returns items ready for SRS insertion.
     func createReviewItems(userId: UUID) -> [ReviewItem] {
-        let completedIds = jamoEntries.map(\.id)
-        return HangulReviewIntegration.createReviewItems(
-            userId: userId,
-            completedJamoIds: completedIds,
-            mode: .recognition
-        )
+        jamoEntries.map { jamo in
+            ReviewItem(
+                userId: userId,
+                itemType: "hangul",
+                itemId: UUID(),
+                nextReviewAt: Date().addingTimeInterval(86400) // first review in 24h
+            )
+        }
+    }
+
+    func completeSpotInTheWild(with score: Double) {
+        guard isSpotInTheWildActive else { return }
+        spotInTheWildScore = max(0, min(1, score))
+        isSpotInTheWildActive = false
+        isLessonComplete = true
+        calculateOverallScore()
+    }
+
+    private func selectSpotInTheWildTask() -> SpotInTheWildTask? {
+        let groupTasks = SpotInTheWildTask.tasks(for: currentGroupIndex)
+        guard !groupTasks.isEmpty else { return nil }
+
+        let learnedCharacters = Set(jamoEntries.map(\.character))
+        if let matchingTask = groupTasks.first(where: { learnedCharacters.contains($0.targetJamo) }) {
+            return matchingTask
+        }
+        return groupTasks.first
     }
 }

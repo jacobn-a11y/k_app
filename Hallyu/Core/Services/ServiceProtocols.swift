@@ -4,15 +4,12 @@ import Foundation
 
 protocol ClaudeServiceProtocol: Sendable {
     func checkTierAllowed(tier: AppState.SubscriptionTier) async throws
+    func resetSessionState() async
     func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse
     func getPronunciationFeedback(transcript: String, target: String) async throws -> PronunciationFeedback
     func getGrammarExplanation(pattern: String, context: String) async throws -> GrammarExplanation
     func generatePracticeItems(mediaContentId: UUID, learnerLevel: String) async throws -> [PracticeItem]
     func getCulturalContext(moment: String, mediaContext: String) async throws -> CulturalContextResponse
-}
-
-extension ClaudeServiceProtocol {
-    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws {}
 }
 
 struct ComprehensionContext: Codable, Sendable {
@@ -181,6 +178,7 @@ protocol MediaPlayerServiceProtocol: Sendable {
 
 protocol AuthServiceProtocol: Sendable {
     func signInWithApple() async throws -> AuthSession
+    func signInWithApple(idToken: String, nonce: String?) async throws -> AuthSession
     func signInWithEmail(email: String, password: String) async throws -> AuthSession
     func signUp(email: String, password: String) async throws -> AuthSession
     func signOut() async throws

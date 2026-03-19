@@ -71,24 +71,28 @@ final class DailyPlanViewModel {
     ) {
         isLoading = true
 
+        let userReviewItems = reviewItems.filter { $0.userId == profile.userId }
+        let userSkillMasteries = skillMasteries.filter { $0.userId == profile.userId }
+        let userStudySessions = studySessions.filter { $0.userId == profile.userId }
+
         let dueItems = srsEngine.getDueItems(
             for: profile.userId,
-            from: reviewItems,
+            from: userReviewItems,
             limit: 50
         )
         overdueReviewCount = dueItems.count
 
-        let todaySessions = filterTodaySessions(studySessions)
+        let todaySessions = filterTodaySessions(userStudySessions)
 
         plan = planGenerator.generatePlan(
             profile: profile,
             dueReviewItems: dueItems,
             availableMedia: mediaContent,
-            skillMasteries: skillMasteries,
+            skillMasteries: userSkillMasteries,
             todaySessions: todaySessions
         )
 
-        streak = computeStreak(from: studySessions, userId: profile.userId)
+        streak = computeStreak(from: userStudySessions, userId: profile.userId)
 
         isLoading = false
     }

@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Accessibility View Modifiers
 
@@ -81,14 +84,12 @@ extension View {
 
 struct HighContrastModifier: ViewModifier {
     @Environment(\.colorSchemeContrast) var contrast
-    @AppStorage("highContrastMode") private var highContrastMode: Bool = false
 
     let normalColor: Color
     let highContrastColor: Color
 
     func body(content: Content) -> some View {
-        let useHighContrast = contrast == .increased || highContrastMode
-        return content.foregroundStyle(useHighContrast ? highContrastColor : normalColor)
+        content.foregroundStyle(contrast == .increased ? highContrastColor : normalColor)
     }
 }
 
@@ -129,15 +130,8 @@ enum HapticType {
 }
 
 struct HapticManager {
-    private static var isHapticFeedbackEnabled: Bool {
-        if UserDefaults.standard.object(forKey: "hapticFeedbackEnabled") == nil {
-            return true
-        }
-        return UserDefaults.standard.bool(forKey: "hapticFeedbackEnabled")
-    }
-
     static func play(_ type: HapticType) {
-        guard isHapticFeedbackEnabled else { return }
+        #if canImport(UIKit)
         switch type {
         case .success:
             let generator = UINotificationFeedbackGenerator()
@@ -161,10 +155,11 @@ struct HapticManager {
             let generator = UISelectionFeedbackGenerator()
             generator.selectionChanged()
         }
+        #endif
     }
 
     static func prepareHaptic(_ type: HapticType) {
-        guard isHapticFeedbackEnabled else { return }
+        #if canImport(UIKit)
         switch type {
         case .success, .error, .warning:
             UINotificationFeedbackGenerator().prepare()
@@ -177,6 +172,7 @@ struct HapticManager {
         case .selection:
             UISelectionFeedbackGenerator().prepare()
         }
+        #endif
     }
 }
 
@@ -184,11 +180,15 @@ struct HapticManager {
 
 extension View {
     func announceOnAppear(_ message: String) -> some View {
+        #if canImport(UIKit)
         self.onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UIAccessibility.post(notification: .screenChanged, argument: message)
             }
         }
+        #else
+        self
+        #endif
     }
 }
 

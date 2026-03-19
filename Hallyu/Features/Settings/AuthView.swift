@@ -1,3 +1,6 @@
+import AuthenticationServices
+import CryptoKit
+import Security
 import SwiftUI
 
 struct AuthView: View {
@@ -8,7 +11,14 @@ struct AuthView: View {
     @State private var isSignUp = false
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var pendingAppleNonce: String?
+    @FocusState private var focusedField: Field?
     let onAuthenticated: (AuthSession) -> Void
+
+    private enum Field {
+        case email
+        case password
+    }
 
     var body: some View {
         ScrollView {
@@ -29,20 +39,13 @@ struct AuthView: View {
                 }
 
                 // Sign in with Apple
-                Button {
-                    Task { await signInWithApple() }
-                } label: {
-                    HStack {
-                        Image(systemName: "apple.logo")
-                        Text("Continue with Apple")
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.primary)
-                    .foregroundStyle(Color(.systemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                SignInWithAppleButton(.continue) { request in
+                    configureAppleRequest(request)
+                } onCompletion: { result in
+                    Task { await handleAppleAuthorization(result) }
                 }
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 52)
                 .disabled(isLoading)
                 .padding(.horizontal)
 
@@ -67,6 +70,7 @@ struct AuthView: View {
                         .padding()
                         .background(Color(.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .focused($focusedField, equals: .email)
                         .onChange(of: email) { _, _ in errorMessage = nil }
 
                     SecureField("Password", text: $password)
@@ -80,6 +84,7 @@ struct AuthView: View {
                         .padding()
                         .background(Color(.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .focused($focusedField, equals: .password)
                         .onChange(of: password) { _, _ in errorMessage = nil }
                 }
                 .padding(.horizontal)
@@ -139,16 +144,49 @@ struct AuthView: View {
 
     // MARK: - Actions
 
-    private func signInWithApple() async {
+    private func configureAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        errorMessage = nil
+        let nonce = Self.randomNonce()
+        pendingAppleNonce = nonce
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = Self.sha256(nonce)
+    }
+
+    private func handleAppleAuthorization(_ result: Result<ASAuthorization, Error>) async {
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        focusedField = nil
+        defer {
+            isLoading = false
+            pendingAppleNonce = nil
+        }
 
-        do {
-            let session = try await services.auth.signInWithApple()
-            onAuthenticated(session)
-            dismiss()
-        } catch {
+        switch result {
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                errorMessage = AuthError.appleSignInFailed.localizedDescription
+                return
+            }
+
+            guard let tokenData = credential.identityToken,
+                  let idToken = String(data: tokenData, encoding: .utf8),
+                  !idToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                errorMessage = AuthError.appleIdentityTokenMissing.localizedDescription
+                return
+            }
+
+            do {
+                let session = try await services.auth.signInWithApple(
+                    idToken: idToken,
+                    nonce: pendingAppleNonce
+                )
+                onAuthenticated(session)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        case .failure(let error):
+            guard !isCancelledAppleAuthorization(error) else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -156,6 +194,7 @@ struct AuthView: View {
     private func submitEmailAuth() async {
         isLoading = true
         errorMessage = nil
+        focusedField = nil
         defer { isLoading = false }
 
         do {
@@ -170,5 +209,38 @@ struct AuthView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func isCancelledAppleAuthorization(_ error: Error) -> Bool {
+        guard let authError = error as? ASAuthorizationError else { return false }
+        return authError.code == .canceled
+    }
+
+    private static func sha256(_ input: String) -> String {
+        let data = Data(input.utf8)
+        let hashed = SHA256.hash(data: data)
+        return hashed.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func randomNonce(length: Int = 32) -> String {
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        result.reserveCapacity(length)
+        var remainingLength = length
+
+        while remainingLength > 0 {
+            var randomByte: UInt8 = 0
+            let status = SecRandomCopyBytes(kSecRandomDefault, 1, &randomByte)
+            if status != errSecSuccess {
+                return UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            }
+
+            if randomByte < charset.count {
+                result.append(charset[Int(randomByte)])
+                remainingLength -= 1
+            }
+        }
+
+        return result
     }
 }

@@ -13,7 +13,8 @@ struct MediaLessonView: View {
             audioService: services.audio,
             speechRecognition: services.speechRecognition,
             userId: userId,
-            learnerLevel: learnerLevel
+            learnerLevel: learnerLevel,
+            subscriptionTier: services.subscription.currentTier
         ))
     }
 
@@ -23,7 +24,7 @@ struct MediaLessonView: View {
             stepContent
         }
         .navigationTitle(viewModel.currentStep.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineNavigationTitleDisplayMode()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 if viewModel.currentStepIndex > 0 && viewModel.currentStep != .summary {
@@ -75,7 +76,7 @@ struct MediaLessonView: View {
             .padding(.horizontal)
         }
         .padding(.vertical, 8)
-        .background(Color(.systemBackground))
+        .background(Color.secondary.opacity(0.08))
     }
 
     private func stepColor(for step: MediaLessonViewModel.LessonStep) -> Color {
@@ -84,7 +85,7 @@ struct MediaLessonView: View {
         } else if step < viewModel.currentStep {
             return .accentColor.opacity(0.4)
         }
-        return Color(.systemGray4)
+        return Color.secondary.opacity(0.2)
     }
 
     // MARK: - Step Content
@@ -125,7 +126,7 @@ struct MediaLessonView: View {
 
             // Embedded media player with subtitles forced off
             MediaPlayerView(content: viewModel.content)
-                .environment(\.subtitleModeOverride, .none)
+                .environment(\.subtitleModeOverride, SubtitleMode.none)
 
             if !viewModel.firstListenCompleted {
                 Button("I've finished listening") {
@@ -174,5 +175,34 @@ struct MediaLessonView: View {
 
             Spacer()
         }
+    }
+}
+
+// MARK: - Subtitle Mode Override Environment Key
+
+private struct SubtitleModeOverrideKey: EnvironmentKey {
+    static let defaultValue: SubtitleMode? = nil
+}
+
+extension EnvironmentValues {
+    var subtitleModeOverride: SubtitleMode? {
+        get { self[SubtitleModeOverrideKey.self] }
+        set { self[SubtitleModeOverrideKey.self] = newValue }
+    }
+}
+
+private struct InlineNavigationTitleDisplayModeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.navigationBarTitleDisplayMode(.inline)
+        #else
+        content
+        #endif
+    }
+}
+
+private extension View {
+    func inlineNavigationTitleDisplayMode() -> some View {
+        modifier(InlineNavigationTitleDisplayModeModifier())
     }
 }

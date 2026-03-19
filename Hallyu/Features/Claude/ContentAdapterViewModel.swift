@@ -23,6 +23,7 @@ final class ContentAdapterViewModel {
 
     let claudeService: ClaudeServiceProtocol
     let learnerModel: LearnerModelServiceProtocol
+    private let subscriptionTier: AppState.SubscriptionTier
 
     // MARK: - Types
 
@@ -36,15 +37,24 @@ final class ContentAdapterViewModel {
 
     init(
         claudeService: ClaudeServiceProtocol,
-        learnerModel: LearnerModelServiceProtocol
+        learnerModel: LearnerModelServiceProtocol,
+        subscriptionTier: AppState.SubscriptionTier = .core
     ) {
         self.claudeService = claudeService
         self.learnerModel = learnerModel
+        self.subscriptionTier = subscriptionTier
     }
 
     // MARK: - Actions
 
     func generateExercises(mediaContentId: UUID, learnerLevel: String) async {
+        do {
+            try await claudeService.checkTierAllowed(tier: subscriptionTier)
+        } catch {
+            phase = .error(claudeErrorMessage(for: error))
+            return
+        }
+
         phase = .generating
         exercises = []
         currentExerciseIndex = 0
@@ -105,6 +115,13 @@ final class ContentAdapterViewModel {
         currentExerciseIndex = 0
         answers = []
         isShowingAnswer = false
+    }
+
+    private func claudeErrorMessage(for error: Error) -> String {
+        if case ClaudeServiceError.tierLimitReached = error {
+            return "Daily interaction limit reached for your subscription tier. Upgrade to continue."
+        }
+        return error.localizedDescription
     }
 
     // MARK: - Computed

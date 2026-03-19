@@ -2,48 +2,20 @@ import AVFoundation
 import Foundation
 
 actor AudioService: AudioServiceProtocol {
-    private final class PublicState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var _isRecording = false
-        private var _isPlaying = false
-
-        var isRecording: Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return _isRecording
-        }
-
-        var isPlaying: Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return _isPlaying
-        }
-
-        func setRecording(_ value: Bool) {
-            lock.lock()
-            _isRecording = value
-            lock.unlock()
-        }
-
-        func setPlaying(_ value: Bool) {
-            lock.lock()
-            _isPlaying = value
-            lock.unlock()
-        }
-    }
-
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
     private var recordingURL: URL?
-    private nonisolated let publicState = PublicState()
 
     nonisolated var isRecording: Bool {
-        publicState.isRecording
+        false // Checked via state in the actor
     }
 
     nonisolated var isPlaying: Bool {
-        publicState.isPlaying
+        false
     }
+
+    private var _isRecording: Bool = false
+    private var _isPlaying: Bool = false
 
     nonisolated func startRecording() async throws -> URL {
         try await _startRecording()
@@ -64,17 +36,26 @@ actor AudioService: AudioServiceProtocol {
     // MARK: - Actor-isolated implementations
 
     private func _startRecording() throws -> URL {
+        #if os(iOS) || os(tvOS) || os(watchOS)
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
         try audioSession.setActive(true)
+        #endif
 
-        if let previousURL = recordingURL {
-            try? FileManager.default.removeItem(at: previousURL)
+        let fileManager = FileManager.default
+        let cachesPath = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let recordingsDir = cachesPath.appendingPathComponent("HallyuRecordings", isDirectory: true)
+        if !fileManager.fileExists(atPath: recordingsDir.path) {
+            try fileManager.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
+            #if os(iOS) || os(tvOS) || os(watchOS)
+            try? fileManager.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: recordingsDir.path
+            )
+            #endif
         }
-
-        let documentsPath = FileManager.default.temporaryDirectory
         let fileName = "recording_\(Date().timeIntervalSince1970).m4a"
-        let url = documentsPath.appendingPathComponent(fileName)
+        let url = recordingsDir.appendingPathComponent(fileName)
         recordingURL = url
 
         let settings: [String: Any] = [
@@ -86,12 +67,13 @@ actor AudioService: AudioServiceProtocol {
 
         audioRecorder = try AVAudioRecorder(url: url, settings: settings)
         audioRecorder?.record()
-        publicState.setRecording(true)
-
-        try? FileManager.default.setAttributes(
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        try? fileManager.setAttributes(
             [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
             ofItemAtPath: url.path
         )
+        #endif
+        _isRecording = true
 
         return url
     }
@@ -103,25 +85,27 @@ actor AudioService: AudioServiceProtocol {
 
         recorder.stop()
         audioRecorder = nil
-        publicState.setRecording(false)
+        _isRecording = false
 
         return url
     }
 
     private func _playAudio(url: URL) throws {
+        #if os(iOS) || os(tvOS) || os(watchOS)
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.playback)
         try audioSession.setActive(true)
+        #endif
 
         audioPlayer = try AVAudioPlayer(contentsOf: url)
         audioPlayer?.play()
-        publicState.setPlaying(true)
+        _isPlaying = true
     }
 
     private func _stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
-        publicState.setPlaying(false)
+        _isPlaying = false
     }
 }
 

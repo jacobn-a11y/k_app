@@ -2,6 +2,13 @@ import Foundation
 import SwiftData
 
 enum MediaContentSeeder {
+    static let sampleStreamingURLs: [String] = [
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+    ]
 
     /// Seed placeholder media content for development/testing.
     /// Real licensed content is a business operation — these are schema-correct placeholders.
@@ -21,22 +28,6 @@ enum MediaContentSeeder {
     static func allPlaceholderContent() -> [MediaContent] {
         dramaClips + webtoonExcerpts + newsArticles + shortVideoClips + musicClips
     }
-
-    private static let demoVideoURLs: [String] = [
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-    ]
-
-    private static let demoAudioURLs: [String] = [
-        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
-        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
-        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
-        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
-    ]
 
     // MARK: - K-Drama Clips (50)
 
@@ -135,7 +126,7 @@ enum MediaContentSeeder {
                     durationSeconds: drama.5 + varIndex * 30,
                     transcriptKr: drama.6,
                     transcriptSegments: drama.8,
-                    mediaUrl: demoVideoURLs[clipIndex % demoVideoURLs.count],
+                    mediaUrl: sampleStreamingURLs[clipIndex % sampleStreamingURLs.count],
                     culturalNotes: drama.7,
                     tags: drama.9
                 ))
@@ -173,7 +164,7 @@ enum MediaContentSeeder {
                     cefrLevel: webtoon.2,
                     durationSeconds: 0,
                     transcriptKr: webtoon.4,
-                    mediaUrl: "",
+                    mediaUrl: "placeholder://webtoon/\(excerptIndex)",
                     tags: webtoon.5
                 ))
             }
@@ -282,7 +273,7 @@ enum MediaContentSeeder {
                 transcriptSegments: [
                     MediaContent.TranscriptSegment(startMs: 0, endMs: 5000, textKr: transcripts[i], textEn: "")
                 ],
-                mediaUrl: demoVideoURLs[i % demoVideoURLs.count],
+                mediaUrl: sampleStreamingURLs[i % sampleStreamingURLs.count],
                 tags: ["vlog", "culture"]
             )
         }
@@ -324,7 +315,7 @@ enum MediaContentSeeder {
                 cefrLevel: levels[i],
                 durationSeconds: 180 + i * 20,
                 transcriptKr: lyrics[i],
-                mediaUrl: demoAudioURLs[i % demoAudioURLs.count],
+                mediaUrl: sampleStreamingURLs[(i + 2) % sampleStreamingURLs.count],
                 tags: ["music", "kpop"]
             )
         }

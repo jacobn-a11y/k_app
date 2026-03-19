@@ -46,19 +46,35 @@ actor ClaudeService: ClaudeServiceProtocol {
         }
     }
 
-    func getDailyInteractionCount() -> Int {
-        interactionTracker.todayCount
+    func getDailyInteractionCount() async -> Int {
+        await interactionTracker.todayCount
     }
 
     func getDailyInteractionLimit(for tier: AppState.SubscriptionTier) -> Int? {
         ClaudeTierLimits.limits(for: tier).dailyLimit
     }
 
+    func resetSessionState() async {
+        await cache.clear()
+        await interactionTracker.clear()
+        lastRequestTime = nil
+    }
+
     // MARK: - Role 1: Comprehension Coach
 
     nonisolated func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse {
         let prompt = ClaudePrompts.comprehensionPrompt(context: context, query: query)
-        let cacheKey = ResponseCache.key(for: "comprehension", context: "\(context.targetWord)_\(context.learnerLevel)")
+        let cacheKey = ResponseCache.key(
+            for: "comprehension",
+            contextComponents: [
+                context.mediaTitle,
+                context.transcript,
+                context.targetWord,
+                context.learnerLevel,
+                query,
+                context.knownVocabulary.sorted().joined(separator: "|")
+            ]
+        )
 
         if let cached: ComprehensionResponse = await cache.get(for: cacheKey) {
             return cached
@@ -88,7 +104,10 @@ actor ClaudeService: ClaudeServiceProtocol {
 
     nonisolated func getGrammarExplanation(pattern: String, context: String) async throws -> GrammarExplanation {
         let prompt = ClaudePrompts.grammarPrompt(pattern: pattern, context: context)
-        let cacheKey = ResponseCache.key(for: "grammar", context: pattern)
+        let cacheKey = ResponseCache.key(
+            for: "grammar",
+            contextComponents: [pattern, context]
+        )
 
         if let cached: GrammarExplanation = await cache.get(for: cacheKey) {
             return cached
@@ -137,7 +156,10 @@ actor ClaudeService: ClaudeServiceProtocol {
 
     nonisolated func getCulturalContext(moment: String, mediaContext: String) async throws -> CulturalContextResponse {
         let prompt = ClaudePrompts.culturalContextPrompt(moment: moment, mediaContext: mediaContext)
-        let cacheKey = ResponseCache.key(for: "cultural", context: moment)
+        let cacheKey = ResponseCache.key(
+            for: "cultural",
+            contextComponents: [moment, mediaContext]
+        )
 
         if let cached: CulturalContextResponse = await cache.get(for: cacheKey) {
             return cached
@@ -265,8 +287,9 @@ actor ResponseCache {
         self.ttl = ttl
     }
 
-    static func key(for role: String, context: String) -> String {
-        let input = "\(role)_\(context)"
+    static func key(for role: String, contextComponents: [String]) -> String {
+        let normalized = ([role] + contextComponents).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let input = normalized.joined(separator: "\u{001F}")
         // SHA-256 hash for cache key to avoid collisions
         let data = input.data(using: .utf8) ?? Data()
         var hash = [UInt8](repeating: 0, count: 32)
@@ -310,7 +333,7 @@ actor ResponseCache {
 // MARK: - Interaction Tracker
 
 actor InteractionTracker {
-    struct DailyRecord {
+    struct DailyRecord: Codable {
         var date: Date
         var interactions: [InteractionEntry] = []
 
@@ -329,7 +352,7 @@ actor InteractionTracker {
         }
     }
 
-    struct InteractionEntry {
+    struct InteractionEntry: Codable {
         let role: ClaudeRole
         let promptTokens: Int
         let completionTokens: Int
@@ -337,9 +360,10 @@ actor InteractionTracker {
     }
 
     private var dailyRecord: DailyRecord
+    private let storageKey = "com.hallyu.claude.interactions.daily"
 
     init() {
-        self.dailyRecord = DailyRecord(date: Date())
+        self.dailyRecord = Self.loadRecord(forKey: storageKey) ?? DailyRecord(date: Date())
     }
 
     var todayCount: Int {
@@ -366,12 +390,29 @@ actor InteractionTracker {
             timestamp: Date()
         )
         dailyRecord.interactions.append(entry)
+        persist()
+    }
+
+    func clear() {
+        dailyRecord = DailyRecord(date: Date())
+        KeychainHelper.delete(forKey: storageKey)
     }
 
     private func ensureCurrentDay() {
         let calendar = Calendar.current
         if !calendar.isDateInToday(dailyRecord.date) {
             dailyRecord = DailyRecord(date: Date())
+            persist()
         }
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(dailyRecord) else { return }
+        KeychainHelper.save(data, forKey: storageKey)
+    }
+
+    private static func loadRecord(forKey key: String) -> DailyRecord? {
+        guard let data = KeychainHelper.load(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(DailyRecord.self, from: data)
     }
 }

@@ -22,55 +22,169 @@ final class ServiceContainer {
         mediaPlayer: MediaPlayerServiceProtocol? = nil,
         auth: AuthServiceProtocol? = nil,
         subscription: SubscriptionServiceProtocol? = nil,
-        syncManager: OfflineSyncManager? = nil,
-        useMocks: Bool = false
+        syncManager: OfflineSyncManager? = nil
     ) {
-        if useMocks {
-            self.claude = claude ?? MockClaudeService()
-            self.audio = audio ?? MockAudioService()
-            self.speechRecognition = speechRecognition ?? MockSpeechRecognitionService()
-            self.srsEngine = srsEngine ?? MockSRSEngine()
-            self.learnerModel = learnerModel ?? MockLearnerModelService()
-            self.mediaPlayer = mediaPlayer ?? MockMediaPlayerService()
-            self.auth = auth ?? MockAuthService()
-            self.subscription = subscription ?? MockSubscriptionService()
-            self.syncManager = syncManager ?? OfflineSyncManager()
-            return
-        }
-
-        let resolvedSubscription = subscription ?? StoreKitSubscriptionService()
-        self.subscription = resolvedSubscription
-        self.claude = claude ?? ClaudeService(
-            tierProvider: { resolvedSubscription.currentTier }
+        let subscriptionService = subscription ?? StoreKitSubscriptionService()
+        let baseClaude = claude ?? ServiceContainer.makeProductionClaudeService()
+        let enforcedClaude = TierEnforcedClaudeService(
+            base: baseClaude,
+            subscription: subscriptionService
         )
+        let baseAuth = auth ?? ServiceContainer.makeProductionAuthService()
+
+        self.claude = enforcedClaude
         self.audio = audio ?? AudioService()
         self.speechRecognition = speechRecognition ?? SpeechRecognitionService()
         self.srsEngine = srsEngine ?? SRSEngine()
         self.learnerModel = learnerModel ?? LearnerModelService()
         self.mediaPlayer = mediaPlayer ?? AVMediaPlayerService()
-        self.auth = auth ?? Self.makeAuthService()
+        self.auth = ClaudeResettingAuthService(base: baseAuth, claude: enforcedClaude)
+        self.subscription = subscriptionService
         self.syncManager = syncManager ?? OfflineSyncManager()
     }
 
-    private static func makeAuthService() -> AuthServiceProtocol {
-        let config = AppEnvironment.current.supabaseConfig
-        guard config.isConfigured else {
-            return UnconfiguredAuthService()
-        }
+    static func testing(
+        claude: ClaudeServiceProtocol = MockClaudeService(),
+        audio: AudioServiceProtocol = MockAudioService(),
+        speechRecognition: SpeechRecognitionServiceProtocol = MockSpeechRecognitionService(),
+        srsEngine: SRSEngineProtocol = MockSRSEngine(),
+        learnerModel: LearnerModelServiceProtocol = MockLearnerModelService(),
+        mediaPlayer: MediaPlayerServiceProtocol = MockMediaPlayerService(),
+        auth: AuthServiceProtocol = MockAuthService(),
+        subscription: SubscriptionServiceProtocol = MockSubscriptionService(),
+        syncManager: OfflineSyncManager = OfflineSyncManager()
+    ) -> ServiceContainer {
+        ServiceContainer(
+            claude: claude,
+            audio: audio,
+            speechRecognition: speechRecognition,
+            srsEngine: srsEngine,
+            learnerModel: learnerModel,
+            mediaPlayer: mediaPlayer,
+            auth: auth,
+            subscription: subscription,
+            syncManager: syncManager
+        )
+    }
+
+    private static func makeProductionAuthService() -> AuthServiceProtocol {
+        let config = SupabaseConfig.current
         let apiClient = APIClient(
             baseURL: config.projectURL,
             defaultHeaders: [
-                "apikey": config.anonKey,
-                "Content-Type": "application/json"
+                "apikey": config.anonKey
             ]
         )
         return AuthService(apiClient: apiClient)
+    }
+
+    private static func makeProductionClaudeService() -> ClaudeServiceProtocol {
+        let env = ProcessInfo.processInfo.environment
+        if let key = env["CLAUDE_API_KEY"], !key.isEmpty {
+            return ClaudeService(apiKey: key)
+        }
+        return UnavailableClaudeService(
+            reason: "CLAUDE_API_KEY missing. Configure CLAUDE_API_KEY to enable Claude features."
+        )
     }
 }
 
 // MARK: - Mock Implementations
 
+private final class TierEnforcedClaudeService: ClaudeServiceProtocol, @unchecked Sendable {
+    private let base: ClaudeServiceProtocol
+    private let subscription: SubscriptionServiceProtocol
+
+    init(base: ClaudeServiceProtocol, subscription: SubscriptionServiceProtocol) {
+        self.base = base
+        self.subscription = subscription
+    }
+
+    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws {
+        try await base.checkTierAllowed(tier: tier)
+    }
+
+    func resetSessionState() async {
+        await base.resetSessionState()
+    }
+
+    func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse {
+        try await enforceTier()
+        return try await base.getComprehensionHelp(context: context, query: query)
+    }
+
+    func getPronunciationFeedback(transcript: String, target: String) async throws -> PronunciationFeedback {
+        try await enforceTier()
+        return try await base.getPronunciationFeedback(transcript: transcript, target: target)
+    }
+
+    func getGrammarExplanation(pattern: String, context: String) async throws -> GrammarExplanation {
+        try await enforceTier()
+        return try await base.getGrammarExplanation(pattern: pattern, context: context)
+    }
+
+    func generatePracticeItems(mediaContentId: UUID, learnerLevel: String) async throws -> [PracticeItem] {
+        try await enforceTier()
+        return try await base.generatePracticeItems(mediaContentId: mediaContentId, learnerLevel: learnerLevel)
+    }
+
+    func getCulturalContext(moment: String, mediaContext: String) async throws -> CulturalContextResponse {
+        try await enforceTier()
+        return try await base.getCulturalContext(moment: moment, mediaContext: mediaContext)
+    }
+
+    private func enforceTier() async throws {
+        try await base.checkTierAllowed(tier: subscription.currentTier)
+    }
+}
+
+private final class ClaudeResettingAuthService: AuthServiceProtocol, @unchecked Sendable {
+    private let base: AuthServiceProtocol
+    private let claude: ClaudeServiceProtocol
+
+    init(base: AuthServiceProtocol, claude: ClaudeServiceProtocol) {
+        self.base = base
+        self.claude = claude
+    }
+
+    var currentSession: AuthSession? { base.currentSession }
+    var isAuthenticated: Bool { base.isAuthenticated }
+
+    func signInWithApple() async throws -> AuthSession {
+        try await base.signInWithApple()
+    }
+
+    func signInWithApple(idToken: String, nonce: String?) async throws -> AuthSession {
+        try await base.signInWithApple(idToken: idToken, nonce: nonce)
+    }
+
+    func signInWithEmail(email: String, password: String) async throws -> AuthSession {
+        try await base.signInWithEmail(email: email, password: password)
+    }
+
+    func signUp(email: String, password: String) async throws -> AuthSession {
+        try await base.signUp(email: email, password: password)
+    }
+
+    func signOut() async throws {
+        try await base.signOut()
+        await claude.resetSessionState()
+    }
+
+    func refreshSession() async throws -> AuthSession {
+        try await base.refreshSession()
+    }
+}
+
 final class MockClaudeService: ClaudeServiceProtocol, @unchecked Sendable {
+    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws {
+        guard ClaudeTierLimits.limits(for: tier).isAllowed(currentCount: 0) else {
+            throw ClaudeServiceError.tierLimitReached
+        }
+    }
+
+    func resetSessionState() async {}
+
     func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse {
         ComprehensionResponse(
             literalMeaning: "Mock literal meaning",
@@ -191,6 +305,14 @@ final class MockAuthService: AuthServiceProtocol, @unchecked Sendable {
         return session
     }
 
+    func signInWithApple(idToken: String, nonce: String?) async throws -> AuthSession {
+        let normalized = idToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw AuthError.appleIdentityTokenMissing
+        }
+        return try await signInWithApple()
+    }
+
     func signInWithEmail(email: String, password: String) async throws -> AuthSession {
         try await signInWithApple()
     }
@@ -232,25 +354,44 @@ final class MockSubscriptionService: SubscriptionServiceProtocol, @unchecked Sen
     }
 }
 
-final class UnconfiguredAuthService: AuthServiceProtocol, @unchecked Sendable {
-    var currentSession: AuthSession? { nil }
-    var isAuthenticated: Bool { false }
+final class UnavailableClaudeService: ClaudeServiceProtocol, @unchecked Sendable {
+    private let reason: String
 
-    func signInWithApple() async throws -> AuthSession {
-        throw AuthError.networkError
+    init(reason: String) {
+        self.reason = reason
     }
 
-    func signInWithEmail(email: String, password: String) async throws -> AuthSession {
-        throw AuthError.networkError
+    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws {
+        throw ServiceUnavailableError(reason: reason)
     }
 
-    func signUp(email: String, password: String) async throws -> AuthSession {
-        throw AuthError.networkError
+    func resetSessionState() async {}
+
+    func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse {
+        throw ServiceUnavailableError(reason: reason)
     }
 
-    func signOut() async throws {}
+    func getPronunciationFeedback(transcript: String, target: String) async throws -> PronunciationFeedback {
+        throw ServiceUnavailableError(reason: reason)
+    }
 
-    func refreshSession() async throws -> AuthSession {
-        throw AuthError.notAuthenticated
+    func getGrammarExplanation(pattern: String, context: String) async throws -> GrammarExplanation {
+        throw ServiceUnavailableError(reason: reason)
+    }
+
+    func generatePracticeItems(mediaContentId: UUID, learnerLevel: String) async throws -> [PracticeItem] {
+        throw ServiceUnavailableError(reason: reason)
+    }
+
+    func getCulturalContext(moment: String, mediaContext: String) async throws -> CulturalContextResponse {
+        throw ServiceUnavailableError(reason: reason)
+    }
+}
+
+struct ServiceUnavailableError: Error, LocalizedError {
+    let reason: String
+
+    var errorDescription: String? {
+        reason
     }
 }

@@ -5,11 +5,31 @@ import Foundation
 @Suite("SupabaseClient Tests")
 struct SupabaseClientTests {
 
-    @Test("SupabaseConfig debug has placeholder values")
-    func debugConfig() {
-        let config = SupabaseConfig.debug
-        #expect(config.anonKey == "placeholder-anon-key")
-        #expect(config.serviceRoleKey == nil)
+    @Test("SupabaseConfig reads values from environment")
+    func configFromEnvironment() throws {
+        let config = try SupabaseConfig.resolved(
+            from: [
+                "SUPABASE_URL": "https://project.supabase.co",
+                "SUPABASE_ANON_KEY": "anon-key",
+                "SUPABASE_SERVICE_ROLE_KEY": "service-role-key"
+            ]
+        )
+
+        #expect(config.projectURL.absoluteString == "https://project.supabase.co")
+        #expect(config.anonKey == "anon-key")
+        #expect(config.serviceRoleKey == "service-role-key")
+    }
+
+    @Test("SupabaseConfig throws for missing required values")
+    func missingConfigThrows() {
+        #expect(throws: SupabaseConfig.SupabaseConfigError.self) {
+            try SupabaseConfig.resolved(from: [:])
+        }
+
+        let placeholder = SupabaseConfig.placeholder
+        #expect(placeholder.projectURL.absoluteString == "https://placeholder.supabase.co")
+        #expect(placeholder.anonKey == "placeholder-anon-key")
+        #expect(placeholder.serviceRoleKey == nil)
     }
 
     @Test("AuthCredentials encodes correctly")

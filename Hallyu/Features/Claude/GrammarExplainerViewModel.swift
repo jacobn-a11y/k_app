@@ -25,15 +25,18 @@ final class GrammarExplainerViewModel {
 
     let claudeService: ClaudeServiceProtocol
     let learnerModel: LearnerModelServiceProtocol
+    private let subscriptionTier: AppState.SubscriptionTier
 
     // MARK: - Init
 
     init(
         claudeService: ClaudeServiceProtocol,
-        learnerModel: LearnerModelServiceProtocol
+        learnerModel: LearnerModelServiceProtocol,
+        subscriptionTier: AppState.SubscriptionTier = .core
     ) {
         self.claudeService = claudeService
         self.learnerModel = learnerModel
+        self.subscriptionTier = subscriptionTier
     }
 
     // MARK: - Actions
@@ -55,6 +58,13 @@ final class GrammarExplainerViewModel {
     }
 
     func requestExplanation() async {
+        do {
+            try await claudeService.checkTierAllowed(tier: subscriptionTier)
+        } catch {
+            phase = .error(claudeErrorMessage(for: error))
+            return
+        }
+
         phase = .loading
 
         do {
@@ -96,5 +106,12 @@ final class GrammarExplainerViewModel {
 
     var hasExplanation: Bool {
         explanation != nil
+    }
+
+    private func claudeErrorMessage(for error: Error) -> String {
+        if case ClaudeServiceError.tierLimitReached = error {
+            return "Daily interaction limit reached for your subscription tier. Upgrade to continue."
+        }
+        return error.localizedDescription
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class OnboardingViewModel {
 
@@ -68,9 +69,30 @@ final class OnboardingViewModel {
     var selectedExperience: KoreanExperience?
     var selectedGoal: DailyGoal = .light
     private(set) var hasSpokenFirstJamo: Bool = false
+    private(set) var firstLessonMicState: FirstLessonMicState = .idle
+    private(set) var firstLessonTranscript: String = ""
+    private(set) var firstLessonConfidence: Double = 0
     private(set) var isComplete: Bool = false
     private(set) var shouldShowPlacementTest: Bool = false
     private(set) var placedCEFRLevel: String?
+
+    private static let firstLessonConfidenceThreshold: Double = 0.7
+    private static let acceptedFirstLessonTranscripts: Set<String> = [
+        "a",
+        "ah",
+        "아",
+        "ㅏ",
+        "아!",
+        "아아",
+    ]
+
+    enum FirstLessonMicState: Equatable {
+        case idle
+        case recording
+        case processing
+        case success(String)
+        case error(String)
+    }
 
     // MARK: - Computed
 
@@ -122,6 +144,76 @@ final class OnboardingViewModel {
 
     func markFirstJamoSpoken() {
         hasSpokenFirstJamo = true
+        firstLessonTranscript = Self.firstLessonSoundLabel
+        firstLessonConfidence = 1
+        firstLessonMicState = .success("Nice work. You’ve got it.")
+    }
+
+    func startFirstLessonRecording(
+        audioService: AudioServiceProtocol,
+        speechRecognition: SpeechRecognitionServiceProtocol
+    ) async {
+        switch firstLessonMicState {
+        case .idle, .error, .success:
+            break
+        case .recording, .processing:
+            return
+        }
+
+        firstLessonTranscript = ""
+        firstLessonConfidence = 0
+
+        guard speechRecognition.isAvailable else {
+            firstLessonMicState = .error("Speech recognition is unavailable on this device.")
+            return
+        }
+
+        let authorized = await speechRecognition.requestAuthorization()
+        guard authorized else {
+            firstLessonMicState = .error("Microphone access is needed to check your pronunciation.")
+            return
+        }
+
+        do {
+            _ = try await audioService.startRecording()
+            firstLessonMicState = .recording
+        } catch {
+            firstLessonMicState = .error("Could not start recording: \(error.localizedDescription)")
+        }
+    }
+
+    func stopFirstLessonRecording(
+        audioService: AudioServiceProtocol,
+        speechRecognition: SpeechRecognitionServiceProtocol
+    ) async {
+        guard case .recording = firstLessonMicState else { return }
+
+        firstLessonMicState = .processing
+
+        do {
+            let audioURL = try await audioService.stopRecording()
+            let result = try await speechRecognition.recognizeSpeech(from: audioURL)
+
+            firstLessonTranscript = result.transcript
+            firstLessonConfidence = result.confidence
+
+            if matchesFirstLessonTarget(transcript: result.transcript, confidence: result.confidence) {
+                hasSpokenFirstJamo = true
+                firstLessonMicState = .success("Great! We heard a clear \(Self.firstLessonSoundLabel).")
+            } else {
+                firstLessonMicState = .error(
+                    "We heard \"\(result.transcript)\" at \(Int(result.confidence * 100))% confidence. Try saying \(Self.firstLessonSoundLabel) again."
+                )
+            }
+        } catch {
+            firstLessonMicState = .error("We couldn't check that recording: \(error.localizedDescription)")
+        }
+    }
+
+    func resetFirstLessonMicState() {
+        firstLessonTranscript = ""
+        firstLessonConfidence = 0
+        firstLessonMicState = .idle
     }
 
     func completeOnboarding() -> OnboardingResult {
@@ -149,6 +241,65 @@ final class OnboardingViewModel {
            let next = Step(rawValue: currentStep.rawValue + 1) {
             currentStep = next
         }
+    }
+
+    var firstLessonPrompt: String {
+        Self.firstLessonSoundLabel
+    }
+
+    var firstLessonStatusMessage: String {
+        switch firstLessonMicState {
+        case .idle:
+            return "Tap Record, say the sound, then stop when you finish."
+        case .recording:
+            return "Listening now. Say the sound naturally and clearly."
+        case .processing:
+            return "Checking your pronunciation..."
+        case .success(let message):
+            return message
+        case .error(let message):
+            return message
+        }
+    }
+
+    var firstLessonStatusIsError: Bool {
+        if case .error = firstLessonMicState { return true }
+        return false
+    }
+
+    var firstLessonStatusIsSuccess: Bool {
+        if case .success = firstLessonMicState { return true }
+        return false
+    }
+
+    var firstLessonIsRecording: Bool {
+        if case .recording = firstLessonMicState { return true }
+        return false
+    }
+
+    var firstLessonIsProcessing: Bool {
+        if case .processing = firstLessonMicState { return true }
+        return false
+    }
+
+    private static let firstLessonSoundLabel = "ㅏ"
+
+    private func matchesFirstLessonTarget(transcript: String, confidence: Double) -> Bool {
+        guard confidence >= Self.firstLessonConfidenceThreshold else { return false }
+
+        let normalized = Self.normalizeTranscript(transcript)
+        return Self.acceptedFirstLessonTranscripts.contains(normalized)
+    }
+
+    private static func normalizeTranscript(_ transcript: String) -> String {
+        transcript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: ".", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "!", with: "")
+            .replacingOccurrences(of: "?", with: "")
     }
 }
 

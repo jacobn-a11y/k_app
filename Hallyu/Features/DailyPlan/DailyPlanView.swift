@@ -6,13 +6,11 @@ struct DailyPlanView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel: DailyPlanViewModel?
-    @State private var reviewRouteItems: [ReviewItem] = []
-    @State private var showReviewRoute = false
-    @State private var routeToMediaLesson: MediaContent?
-    @State private var showHangulLesson = false
-    @State private var showMediaLibrary = false
+    @State private var loadedProfile: LearnerProfile?
+    @State private var loadedReviewItems: [ReviewItem] = []
+    @State private var loadedMediaContent: [MediaContent] = []
+    @State private var activeRoute: DailyPlanFlowRoute?
     @State private var activeActivityId: UUID?
-    @State private var infoAlert: PlanInfoAlert?
 
     var body: some View {
         NavigationStack {
@@ -31,29 +29,19 @@ struct DailyPlanView: View {
             }
             .navigationTitle("Today")
             .onAppear { loadPlan() }
-            .navigationDestination(isPresented: $showReviewRoute) {
-                ReviewSessionView(items: reviewRouteItems, services: services)
-                    .onDisappear { markRoutedActivityComplete() }
+            .onChange(of: activeRoute?.id) { _, newRouteId in
+                if newRouteId == nil {
+                    activeActivityId = nil
+                }
             }
-            .navigationDestination(item: $routeToMediaLesson) { content in
-                MediaLessonView(
-                    content: content,
-                    userId: appState.currentUserId ?? UUID(),
-                    learnerLevel: appState.currentCEFRLevel.rawValue,
-                    services: services
-                )
-                .onDisappear { markRoutedActivityComplete() }
-            }
-            .navigationDestination(isPresented: $showHangulLesson) {
-                HangulLessonView(groupIndex: 0, services: services)
-                    .onDisappear { markRoutedActivityComplete() }
-            }
-            .navigationDestination(isPresented: $showMediaLibrary) {
-                MediaLibraryView()
-                    .onDisappear { markRoutedActivityComplete() }
-            }
-            .alert(item: $infoAlert) { alert in
-                Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
+            .sheet(item: $activeRoute) { route in
+                DailyPlanActivityFlowSheet(
+                    route: route,
+                    services: services,
+                    profile: loadedProfile
+                ) {
+                    finishActiveActivity(markAsComplete: true)
+                }
             }
         }
     }
@@ -70,7 +58,7 @@ struct DailyPlanView: View {
                     overdueReviewBanner(count: viewModel.overdueReviewCount)
                 }
 
-                activitiesSection(plan: plan, viewModel: viewModel)
+                activitiesSection(plan: plan)
 
                 if plan.isComplete {
                     completionBanner
@@ -116,9 +104,11 @@ struct DailyPlanView: View {
 
             ProgressView(value: plan.completionProgress)
                 .tint(plan.isComplete ? .green : .blue)
+                .accessibilityLabel("Daily plan progress")
+                .accessibilityValue("\(Int(plan.completionProgress * 100)) percent")
         }
         .padding()
-        .background(Color(.systemGray6))
+        .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
@@ -140,7 +130,7 @@ struct DailyPlanView: View {
 
     // MARK: - Activities
 
-    private func activitiesSection(plan: DailyPlan, viewModel: DailyPlanViewModel) -> some View {
+    private func activitiesSection(plan: DailyPlan) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Your Plan")
                 .font(.headline)
@@ -191,28 +181,20 @@ struct DailyPlanView: View {
             learnerModel: services.learnerModel
         )
 
-        let fetchDescriptor = FetchDescriptor<LearnerProfile>()
-        let profiles = (try? modelContext.fetch(fetchDescriptor)) ?? []
-        guard let profile = profiles.first else {
+        guard let profile = currentLearnerProfile(modelContext: modelContext, appState: appState) else {
             viewModel = vm
             return
         }
-
-        if appState.currentUserId == nil {
-            appState.currentUserId = profile.userId
-        }
-        if let level = AppState.CEFRLevel(rawValue: profile.cefrLevel) {
-            appState.currentCEFRLevel = level
-        }
+        loadedProfile = profile
 
         let now = Date()
-        let reviewDescriptor = FetchDescriptor<ReviewItem>(
-            predicate: #Predicate { $0.nextReviewAt <= now }
-        )
+        let reviewDescriptor = FetchDescriptor<ReviewItem>()
         let reviewItems = (try? modelContext.fetch(reviewDescriptor)) ?? []
+        loadedReviewItems = reviewItems.filter { $0.userId == profile.userId && $0.nextReviewAt <= now }
 
         let mediaDescriptor = FetchDescriptor<MediaContent>()
         let media = (try? modelContext.fetch(mediaDescriptor)) ?? []
+        loadedMediaContent = media
 
         let skillDescriptor = FetchDescriptor<SkillMastery>()
         let skills = (try? modelContext.fetch(skillDescriptor)) ?? []
@@ -232,62 +214,65 @@ struct DailyPlanView: View {
     }
 
     private func startActivity(_ activity: PlanActivity) {
+        guard let profile = loadedProfile ?? currentLearnerProfile(modelContext: modelContext, appState: appState) else {
+            return
+        }
+
+        activeActivityId = activity.id
+        activeRoute = route(for: activity, profile: profile)
+    }
+
+    private func finishActiveActivity(markAsComplete: Bool) {
+        guard let activeActivityId else { return }
+        if markAsComplete {
+            viewModel?.completeActivity(id: activeActivityId)
+        }
+        self.activeActivityId = nil
+    }
+
+    private func route(for activity: PlanActivity, profile: LearnerProfile) -> DailyPlanFlowRoute? {
         switch activity.type {
         case .srsReview:
-            let descriptor = FetchDescriptor<ReviewItem>()
-            let allItems = (try? modelContext.fetch(descriptor)) ?? []
-            guard let userId = appState.currentUserId ?? allItems.first?.userId else {
-                infoAlert = PlanInfoAlert(
-                    title: "No Review Items",
-                    message: "Complete a lesson first so we can build your review queue."
-                )
-                return
-            }
-            let dueItems = services.srsEngine.getDueItems(for: userId, from: allItems, limit: max(10, activity.reviewItemCount))
-            guard !dueItems.isEmpty else {
-                infoAlert = PlanInfoAlert(
-                    title: "Review Queue Empty",
-                    message: "You’re all caught up. Start a lesson to add new review items."
-                )
-                return
-            }
-            activeActivityId = activity.id
-            reviewRouteItems = dueItems
-            showReviewRoute = true
-
+            return .review(items: loadedReviewItems)
         case .mediaLesson:
-            guard let mediaId = activity.mediaContentId else {
-                infoAlert = PlanInfoAlert(
-                    title: "Media Not Available",
-                    message: "This activity has no linked media yet."
-                )
-                return
-            }
-            let allMedia = (try? modelContext.fetch(FetchDescriptor<MediaContent>())) ?? []
-            guard let content = allMedia.first(where: { $0.id == mediaId }) else {
-                infoAlert = PlanInfoAlert(
-                    title: "Media Not Found",
-                    message: "Refresh your plan and try again."
-                )
-                return
-            }
-            activeActivityId = activity.id
-            routeToMediaLesson = content
-
+            return .media(content: recommendedMediaContent(for: profile))
         case .hangulLesson:
-            activeActivityId = activity.id
-            showHangulLesson = true
-
-        case .pronunciationPractice, .vocabularyBuilding, .grammarReview:
-            activeActivityId = activity.id
-            showMediaLibrary = true
+            return .hangul(groupIndex: 0)
+        case .pronunciationPractice:
+            return .pronunciation(targetText: recommendedPronunciationTarget(for: profile))
+        case .vocabularyBuilding:
+            return .vocabulary
+        case .grammarReview:
+            return .grammar(
+                pattern: recommendedGrammarPattern(for: profile),
+                context: recommendedGrammarContext(for: profile)
+            )
         }
     }
 
-    private func markRoutedActivityComplete() {
-        guard let id = activeActivityId, let viewModel else { return }
-        viewModel.completeActivity(id: id)
-        activeActivityId = nil
+    private func recommendedMediaContent(for profile: LearnerProfile) -> MediaContent? {
+        loadedMediaContent.first { $0.cefrLevel == profile.cefrLevel }
+            ?? loadedMediaContent.first
+    }
+
+    private func recommendedPronunciationTarget(for profile: LearnerProfile) -> String {
+        guard let media = recommendedMediaContent(for: profile) else {
+            return "안녕하세요"
+        }
+        return KoreanTextAnalyzer.tokenize(media.transcriptKr).first ?? "안녕하세요"
+    }
+
+    private func recommendedGrammarPattern(for profile: LearnerProfile) -> String {
+        switch profile.cefrLevel {
+        case "pre-A1", "A1": return "-아/어요"
+        case "A2": return "-고 싶다"
+        case "B1": return "-(으)ㄴ데"
+        default: return "-(으)ㄹ 수 있다"
+        }
+    }
+
+    private func recommendedGrammarContext(for profile: LearnerProfile) -> String {
+        recommendedMediaContent(for: profile)?.title ?? "Daily plan practice"
     }
 }
 
@@ -334,12 +319,14 @@ struct ActivityCardView: View {
                         .fontWeight(.medium)
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.capsule)
-                        .controlSize(.small)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel("Start \(activity.title)")
+                        .accessibilityHint("Opens the activity flow for this task.")
                 }
             }
         }
         .padding()
-        .background(Color(.systemGray6))
+        .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .opacity(activity.isCompleted ? 0.7 : 1.0)
     }
@@ -367,8 +354,157 @@ struct ActivityCardView: View {
     }
 }
 
-struct PlanInfoAlert: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
+// MARK: - Activity Flow Sheet
+
+private enum DailyPlanFlowRoute: Identifiable {
+    case review(items: [ReviewItem])
+    case media(content: MediaContent?)
+    case hangul(groupIndex: Int)
+    case pronunciation(targetText: String)
+    case vocabulary
+    case grammar(pattern: String, context: String)
+
+    var id: String {
+        switch self {
+        case .review: return "review"
+        case .media: return "media"
+        case .hangul: return "hangul"
+        case .pronunciation: return "pronunciation"
+        case .vocabulary: return "vocabulary"
+        case .grammar: return "grammar"
+        }
+    }
+}
+
+private struct DailyPlanActivityFlowSheet: View {
+    let route: DailyPlanFlowRoute
+    let services: ServiceContainer
+    let profile: LearnerProfile?
+    let onComplete: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        routeView
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Spacer()
+
+                    Button {
+                        onComplete()
+                        dismiss()
+                    } label: {
+                        Label("Finish Activity", systemImage: "checkmark.circle.fill")
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+                .background(.regularMaterial)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .interactiveDismissDisabled(true)
+    }
+
+    @ViewBuilder
+    private var routeView: some View {
+        switch route {
+        case .review(let items):
+            ReviewSessionView(items: items, services: services)
+        case .media(let content):
+            if let content, let profile {
+                MediaLessonView(
+                    content: content,
+                    userId: profile.userId,
+                    learnerLevel: profile.cefrLevel,
+                    services: services
+                )
+            } else {
+                ContentUnavailableView(
+                    "No Media Lesson Available",
+                    systemImage: "play.rectangle.fill",
+                    description: Text("Add media content to unlock this activity.")
+                )
+            }
+        case .hangul(let groupIndex):
+            HangulLessonView(groupIndex: groupIndex, services: services)
+        case .pronunciation(let targetText):
+            PronunciationPracticeFlowView(
+                services: services,
+                targetText: targetText
+            )
+        case .vocabulary:
+            MediaLibraryView()
+        case .grammar(let pattern, let context):
+            GrammarReviewFlowView(
+                services: services,
+                pattern: pattern,
+                context: context,
+                userId: profile?.userId
+            )
+        }
+    }
+}
+
+private struct PronunciationPracticeFlowView: View {
+    @State private var viewModel: PronunciationTutorViewModel
+    private let targetText: String
+
+    init(services: ServiceContainer, targetText: String) {
+        let viewModel = PronunciationTutorViewModel(
+            claudeService: services.claude,
+            audioService: services.audio,
+            speechRecognition: services.speechRecognition,
+            subscriptionTier: services.subscription.currentTier
+        )
+        _viewModel = State(initialValue: viewModel)
+        self.targetText = targetText
+    }
+
+    var body: some View {
+        PronunciationTutorView(viewModel: viewModel)
+            .onAppear {
+                if viewModel.targetText.isEmpty {
+                    viewModel.setTarget(targetText)
+                }
+            }
+    }
+}
+
+private struct GrammarReviewFlowView: View {
+    @State private var viewModel: GrammarExplainerViewModel
+    let userId: UUID?
+    private let pattern: String
+    private let context: String
+
+    init(services: ServiceContainer, pattern: String, context: String, userId: UUID?) {
+        let viewModel = GrammarExplainerViewModel(
+            claudeService: services.claude,
+            learnerModel: services.learnerModel,
+            subscriptionTier: services.subscription.currentTier
+        )
+        _viewModel = State(initialValue: viewModel)
+        self.userId = userId
+        self.pattern = pattern
+        self.context = context
+    }
+
+    var body: some View {
+        if let userId {
+            GrammarExplainerView(viewModel: viewModel, userId: userId)
+                .onAppear {
+                    if viewModel.pattern.isEmpty {
+                        viewModel.presentGrammar(pattern: pattern, mediaContext: context)
+                    }
+                }
+        } else {
+            ContentUnavailableView(
+                "Grammar Practice Unavailable",
+                systemImage: "text.book.closed.fill",
+                description: Text("Complete onboarding to access grammar practice.")
+            )
+        }
+    }
 }

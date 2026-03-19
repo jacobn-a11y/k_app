@@ -216,7 +216,7 @@ Monthly "Media Challenges" serve as summative assessments: the learner watches a
 | Component | Technology | Purpose |
 |---|---|---|
 | LLM Integration | Claude API (Anthropic) | Comprehension coaching, pronunciation feedback, grammar explanation, content adaptation, cultural context |
-| Speech Recognition | Apple Speech Framework (`ko-KR`) | On-device transcription + confidence scoring for pronunciation and shadowing feedback |
+| Speech Recognition | Apple Speech Framework (ko-KR locale) + confidence heuristics | On-device-friendly transcription and pronunciation feedback loop |
 | Spacing Algorithm | Custom half-life regression model | Adaptive SRS scheduling based on individual forgetting curves |
 | Content Difficulty | Custom NLP pipeline (morphological analysis + frequency scoring) | Media difficulty tiering and learner-content matching |
 | Learner Model | Bayesian knowledge tracing | Per-skill mastery estimation with uncertainty quantification |
@@ -269,7 +269,7 @@ Hallyu is designed to WCAG 2.2 AA standards with the following specific commitme
 | Risk | Severity | Mitigation |
 |---|---|---|
 | Korean media licensing costs and availability | High | Begin with webtoon dialogue (more accessible licensing), Korean Creative Content Agency partnerships, and user-generated content curation for short-form video. Phase in premium drama/film licensing as revenue scales. |
-| ASR accuracy for beginner Korean speakers | High | Use Apple Speech confidence thresholds to gate feedback quality; when confidence is low, fall back to Claude qualitative coaching and "hear the model" replay prompts. |
+| ASR accuracy for beginner Korean speakers | High | Use confidence thresholds with qualitative Claude fallback, maintain manual review path, and continuously evaluate beginner intelligibility across diverse accents. |
 | Claude API costs at scale | Medium | Cache common explanations for high-frequency vocabulary and grammar patterns; use Claude for novel contexts only; implement response-length constraints; monitor cost-per-active-user monthly. |
 | Content pipeline bottleneck | Medium | Automate morphological analysis and difficulty scoring; use Claude for first-draft exercise generation with human review; build internal tools for rapid content annotation. |
 | Learner drop-off after Hangul module | Medium | Ensure the transition from Hangul to media consumption is seamless (first drama clip appears in Week 2); use the free tier as a complete Hangul experience that naturally leads to paid media access. |
