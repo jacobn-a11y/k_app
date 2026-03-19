@@ -4,8 +4,7 @@ import PackageDescription
 let package = Package(
     name: "Hallyu",
     platforms: [
-        .iOS(.v17),
-        .macOS(.v14)
+        .iOS(.v17)
     ],
     products: [
         .library(
@@ -23,6 +22,7 @@ let package = Package(
                 "Resources/Audio",
                 "Resources/HangulStrokeData",
                 "App/HallyuApp.swift",
+                "Tests"
             ]
         ),
         .testTarget(

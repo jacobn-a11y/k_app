@@ -78,7 +78,8 @@ final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked
 
     init() {
         // Load persisted tier
-        if let saved = UserDefaults.standard.string(forKey: tierKey),
+        if let data = KeychainHelper.load(forKey: tierKey),
+           let saved = String(data: data, encoding: .utf8),
            let tier = AppState.SubscriptionTier(rawValue: saved) {
             currentTier = tier
         }
@@ -184,6 +185,8 @@ final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked
     }
 
     private func persistTier(_ tier: AppState.SubscriptionTier) {
-        UserDefaults.standard.set(tier.rawValue, forKey: tierKey)
+        if let data = tier.rawValue.data(using: .utf8) {
+            KeychainHelper.save(data, forKey: tierKey)
+        }
     }
 }

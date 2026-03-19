@@ -145,11 +145,11 @@ actor OfflineSyncManager {
 
     private func savePendingOperations() {
         guard let data = try? JSONEncoder().encode(pendingOperations) else { return }
-        UserDefaults.standard.set(data, forKey: storageKey)
+        KeychainHelper.save(data, forKey: storageKey)
     }
 
     private func loadPendingOperations() {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+        guard let data = KeychainHelper.load(forKey: storageKey),
               let operations = try? JSONDecoder().decode([PendingSyncOperation].self, from: data) else {
             return
         }

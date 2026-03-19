@@ -18,7 +18,7 @@ struct AuthView: View {
                 // Header
                 VStack(spacing: 8) {
                     Image(systemName: "person.circle.fill")
-                        .font(.system(size: 60))
+                        .scaledFont(size: 60)
                         .foregroundStyle(.blue)
                     Text(isSignUp ? "Create Account" : "Welcome Back")
                         .font(.title)
@@ -130,7 +130,9 @@ struct AuthView: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 8)
             }
+            .padding(.bottom, 40)
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle(isSignUp ? "Sign Up" : "Sign In")
         .navigationBarTitleDisplayMode(.inline)
     }

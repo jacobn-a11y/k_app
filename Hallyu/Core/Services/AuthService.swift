@@ -29,7 +29,7 @@ enum AuthError: Error, LocalizedError {
 
 // MARK: - Keychain Helper
 
-private enum KeychainHelper {
+enum KeychainHelper {
     static func save(_ data: Data, forKey key: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

@@ -116,6 +116,9 @@ final class ReviewSessionViewModel {
             responseTime: responseTime
         )
         sessionResults.append(result)
+        
+        // Haptic feedback
+        HapticManager.play(wasCorrect ? .success : .error)
 
         // Update SRS scheduling
         _ = srsEngine.scheduleNextReview(item: item, wasCorrect: wasCorrect, responseTime: responseTime)
@@ -143,13 +146,15 @@ final class ReviewSessionViewModel {
         currentItemStartTime = Date()
 
         if currentIndex >= items.count {
-            // Check for retry items (items answered incorrectly)
-            let retryItems = srsEngine.getSessionRetryItems(
-                from: sessionResults.enumerated().compactMap { index, result in
-                    guard index < items.count else { return nil }
-                    return (item: items[index], wasCorrect: result.wasCorrect)
-                }
-            )
+            // Check for retry items (items answered incorrectly in their MOST RECENT attempt)
+            var latestAnswers: [UUID: Bool] = [:]
+            for result in sessionResults {
+                latestAnswers[result.itemId] = result.wasCorrect
+            }
+
+            let retryItems = items.prefix(originalItemCount).filter { item in
+                latestAnswers[item.id] == false
+            }
 
             if !retryItems.isEmpty && sessionResults.count < originalItemCount * 2 {
                 // Add retry items to the end (capped at 2x original to avoid infinite loops)

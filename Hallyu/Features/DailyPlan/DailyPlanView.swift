@@ -166,7 +166,10 @@ struct DailyPlanView: View {
             return
         }
 
-        let reviewDescriptor = FetchDescriptor<ReviewItem>()
+        let now = Date()
+        let reviewDescriptor = FetchDescriptor<ReviewItem>(
+            predicate: #Predicate { $0.nextReviewAt <= now }
+        )
         let reviewItems = (try? modelContext.fetch(reviewDescriptor)) ?? []
 
         let mediaDescriptor = FetchDescriptor<MediaContent>()
