@@ -24,6 +24,9 @@ final class AppState {
     var isOffline: Bool = false
     var pendingSyncCount: Int = 0
 
+    // Feed session state
+    var feedSessionActive: Bool = false
+
     // Deep link navigation
     var pendingDeepLink: DeepLink?
 
