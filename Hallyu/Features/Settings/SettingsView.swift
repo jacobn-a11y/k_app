@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(ServiceContainer.self) private var services
     @Environment(AppState.self) private var appState
+    @Environment(NotificationService.self) private var notificationService
+    @Environment(MediaDownloadManager.self) private var downloadManager
     @State private var showSignOutConfirmation = false
     @State private var isSigningOut = false
 
@@ -18,6 +20,7 @@ struct SettingsView: View {
                             Image(systemName: "person.circle.fill")
                                 .font(.largeTitle)
                                 .foregroundStyle(.blue)
+                                .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(appState.isAuthenticated ? "Your Profile" : "Guest")
                                     .font(.headline)
@@ -26,6 +29,8 @@ struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(appState.isAuthenticated ? "Your Profile, level \(appState.currentCEFRLevel.rawValue)" : "Guest profile")
                     }
                 }
 
@@ -46,6 +51,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .accessibilityLabel("Subscription plan: \(tierDisplayName)")
                 }
 
                 // Learning section
@@ -63,12 +69,58 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.menu)
                     }
+                    .accessibilityLabel("Daily goal: \(appState.dailyGoalMinutes) minutes")
 
                     HStack {
                         Label("CEFR Level", systemImage: "chart.bar.fill")
                         Spacer()
                         Text(appState.currentCEFRLevel.rawValue)
                             .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("CEFR level: \(appState.currentCEFRLevel.rawValue)")
+                }
+
+                // Notifications section
+                Section("Notifications") {
+                    NavigationLink {
+                        NotificationSettingsView(notificationService: notificationService)
+                    } label: {
+                        HStack {
+                            Label("Review Reminders", systemImage: "bell.fill")
+                            Spacer()
+                            Text(notificationService.notificationsEnabled ? "On" : "Off")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityLabel("Review reminders: \(notificationService.notificationsEnabled ? "On" : "Off")")
+                }
+
+                // Downloads section
+                Section("Offline") {
+                    NavigationLink {
+                        DownloadsSettingsView(downloadManager: downloadManager)
+                    } label: {
+                        HStack {
+                            Label("Downloads", systemImage: "arrow.down.circle.fill")
+                            Spacer()
+                            if downloadManager.downloadedMedia.isEmpty {
+                                Text("None")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("\(downloadManager.downloadedMedia.count) items")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("Downloads: \(downloadManager.downloadedMedia.count) items")
+                }
+
+                // Accessibility section
+                Section("Accessibility") {
+                    NavigationLink {
+                        AccessibilitySettingsView()
+                    } label: {
+                        Label("Accessibility", systemImage: "accessibility")
                     }
                 }
 
@@ -81,6 +133,7 @@ struct SettingsView: View {
                             Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                         }
                         .disabled(isSigningOut)
+                        .accessibilityHint("Sign out of your account")
                     } else {
                         NavigationLink {
                             AuthView { session in
@@ -90,6 +143,7 @@ struct SettingsView: View {
                         } label: {
                             Label("Sign In", systemImage: "person.badge.plus")
                         }
+                        .accessibilityHint("Sign in to sync progress across devices")
                     }
                 }
 
@@ -98,8 +152,18 @@ struct SettingsView: View {
                     HStack {
                         Label("Version", systemImage: "info.circle")
                         Spacer()
-                        Text("1.0.0")
+                        Text(AppStoreMetadata.version)
                             .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Version \(AppStoreMetadata.version)")
+
+                    Link(destination: URL(string: AppStoreMetadata.privacyPolicyURL)!) {
+                        Label("Privacy Policy", systemImage: "hand.raised.fill")
+                    }
+
+                    Link(destination: URL(string: AppStoreMetadata.termsOfServiceURL)!) {
+                        Label("Terms of Service", systemImage: "doc.text.fill")
                     }
                 }
             }

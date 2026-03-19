@@ -11,6 +11,7 @@ final class ServiceContainer {
     let mediaPlayer: MediaPlayerServiceProtocol
     let auth: AuthServiceProtocol
     let subscription: SubscriptionServiceProtocol
+    let syncManager: OfflineSyncManager
 
     init(
         claude: ClaudeServiceProtocol? = nil,
@@ -20,7 +21,8 @@ final class ServiceContainer {
         learnerModel: LearnerModelServiceProtocol? = nil,
         mediaPlayer: MediaPlayerServiceProtocol? = nil,
         auth: AuthServiceProtocol? = nil,
-        subscription: SubscriptionServiceProtocol? = nil
+        subscription: SubscriptionServiceProtocol? = nil,
+        syncManager: OfflineSyncManager? = nil
     ) {
         self.claude = claude ?? MockClaudeService()
         self.audio = audio ?? MockAudioService()
@@ -30,6 +32,7 @@ final class ServiceContainer {
         self.mediaPlayer = mediaPlayer ?? MockMediaPlayerService()
         self.auth = auth ?? MockAuthService()
         self.subscription = subscription ?? MockSubscriptionService()
+        self.syncManager = syncManager ?? OfflineSyncManager()
     }
 }
 

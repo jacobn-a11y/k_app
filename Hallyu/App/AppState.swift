@@ -10,6 +10,13 @@ final class AppState {
     var subscriptionTier: SubscriptionTier = .free
     var isAuthenticated: Bool = false
 
+    // Offline state
+    var isOffline: Bool = false
+    var pendingSyncCount: Int = 0
+
+    // Deep link navigation
+    var pendingDeepLink: DeepLink?
+
     enum CEFRLevel: String, Codable, CaseIterable, Comparable {
         case preA1 = "pre-A1"
         case a1 = "A1"
