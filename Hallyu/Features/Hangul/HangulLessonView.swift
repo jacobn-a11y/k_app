@@ -1,8 +1,12 @@
 import SwiftUI
+import SwiftData
 
 struct HangulLessonView: View {
     @State private var viewModel: HangulLessonViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AppState.self) private var appState
+    @State private var didPersistReviewItems = false
 
     init(groupIndex: Int, services: ServiceContainer) {
         _viewModel = State(initialValue: HangulLessonViewModel(
@@ -35,6 +39,7 @@ struct HangulLessonView: View {
                             jamo: jamo,
                             step: viewModel.currentStep,
                             pronunciationFeedback: viewModel.pronunciationFeedback,
+                            pronunciationScore: viewModel.pronunciationScore,
                             recognitionResult: viewModel.recognitionResult,
                             isRecording: viewModel.isRecording,
                             onAdvance: { viewModel.advanceStep() },
@@ -118,5 +123,36 @@ struct HangulLessonView: View {
             .padding(.horizontal)
         }
         .padding()
+        .onAppear {
+            persistReviewItemsIfNeeded()
+        }
+    }
+
+    private func persistReviewItemsIfNeeded() {
+        guard !didPersistReviewItems else { return }
+        didPersistReviewItems = true
+
+        let userId = appState.currentUserId ?? UUID()
+        if appState.currentUserId == nil {
+            appState.currentUserId = userId
+        }
+
+        let reviewItems = viewModel.createReviewItems(userId: userId)
+        let existing = (try? modelContext.fetch(FetchDescriptor<ReviewItem>())) ?? []
+        let existingKeys = Set(existing.map { "\($0.userId.uuidString)_\($0.itemType)_\($0.itemId.uuidString)" })
+
+        for item in reviewItems {
+            let key = "\(item.userId.uuidString)_\(item.itemType)_\(item.itemId.uuidString)"
+            if !existingKeys.contains(key) {
+                modelContext.insert(item)
+            }
+        }
+
+        if let profile = (try? modelContext.fetch(FetchDescriptor<LearnerProfile>()))?.first(where: { $0.userId == userId }) {
+            profile.hangulCompleted = true
+            profile.updatedAt = Date()
+        }
+
+        try? modelContext.save()
     }
 }

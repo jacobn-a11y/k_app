@@ -3,6 +3,7 @@ import SwiftUI
 struct StrokeOrderView: View {
     let strokePaths: [StrokePath]
     let character: Character
+    @AppStorage("autoplayAnimations") private var autoplayAnimations: Bool = true
     @State private var animationProgress: Double = 0
     @State private var currentStroke: Int = 0
     @State private var isAnimating: Bool = false
@@ -95,7 +96,13 @@ struct StrokeOrderView: View {
             }
         }
         .onAppear {
-            startAnimation()
+            if autoplayAnimations && !reduceMotion {
+                startAnimation()
+            } else {
+                isAnimating = false
+                currentStroke = strokePaths.count
+                animationProgress = 1.0
+            }
         }
     }
 

@@ -29,6 +29,11 @@ let package = Package(
             name: "HallyuTests",
             dependencies: ["HallyuCore"],
             path: "Tests"
+        ),
+        .testTarget(
+            name: "HallyuLegacyTests",
+            dependencies: ["HallyuCore"],
+            path: "Hallyu/Tests"
         )
     ]
 )

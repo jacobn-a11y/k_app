@@ -71,13 +71,17 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     private var _currentSession: AuthSession?
     private let sessionKey = "com.hallyu.authSession"
     private var refreshTask: Task<Void, Never>?
+    private let sessionLock = NSLock()
 
-    var currentSession: AuthSession? { _currentSession }
-    var isAuthenticated: Bool { _currentSession != nil && !isSessionExpired }
+    var currentSession: AuthSession? {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+        return _currentSession
+    }
 
-    private var isSessionExpired: Bool {
-        guard let session = _currentSession else { return true }
-        return session.expiresAt < Date()
+    var isAuthenticated: Bool {
+        guard let session = currentSession else { return false }
+        return session.expiresAt > Date()
     }
 
     init(apiClient: APIClient) {
@@ -94,7 +98,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     private func startProactiveRefresh() {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self = self, let session = self._currentSession else {
+                guard let self = self, let session = self.currentSession else {
                     try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
                     continue
                 }
@@ -115,7 +119,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
         let body: [String: String] = ["provider": "apple"]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-        let request = APIRequest(
+        let request = try APIRequest(
             path: "/auth/v1/token",
             method: .post,
             queryItems: [URLQueryItem(name: "grant_type", value: "id_token")],
@@ -124,7 +128,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        _currentSession = authSession
+        setCurrentSession(authSession)
         persistSession(authSession)
         return authSession
     }
@@ -153,7 +157,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        _currentSession = authSession
+        setCurrentSession(authSession)
         persistSession(authSession)
         return authSession
     }
@@ -174,7 +178,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        _currentSession = authSession
+        setCurrentSession(authSession)
         persistSession(authSession)
         return authSession
     }
@@ -182,8 +186,8 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
     // MARK: - Sign Out
 
     func signOut() async throws {
-        if let token = _currentSession?.accessToken {
-            let request = APIRequest(
+        if let token = currentSession?.accessToken {
+            let request = try APIRequest(
                 path: "/auth/v1/logout",
                 method: .post,
                 headers: ["Authorization": "Bearer \(token)"],
@@ -191,14 +195,14 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
             )
             _ = try? await apiClient.sendRaw(request)
         }
-        _currentSession = nil
+        setCurrentSession(nil)
         clearPersistedSession()
     }
 
     // MARK: - Refresh
 
     func refreshSession() async throws -> AuthSession {
-        guard let session = _currentSession else {
+        guard let session = currentSession else {
             throw AuthError.notAuthenticated
         }
 
@@ -211,7 +215,7 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
         let response: AuthSessionResponse = try await apiClient.send(request)
         let authSession = response.toAuthSession()
-        _currentSession = authSession
+        setCurrentSession(authSession)
         persistSession(authSession)
         return authSession
     }
@@ -231,6 +235,12 @@ final class AuthService: AuthServiceProtocol, @unchecked Sendable {
 
     private func clearPersistedSession() {
         KeychainHelper.delete(forKey: sessionKey)
+    }
+
+    private func setCurrentSession(_ session: AuthSession?) {
+        sessionLock.lock()
+        _currentSession = session
+        sessionLock.unlock()
     }
 }
 

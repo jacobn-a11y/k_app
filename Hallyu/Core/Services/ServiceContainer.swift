@@ -22,17 +22,49 @@ final class ServiceContainer {
         mediaPlayer: MediaPlayerServiceProtocol? = nil,
         auth: AuthServiceProtocol? = nil,
         subscription: SubscriptionServiceProtocol? = nil,
-        syncManager: OfflineSyncManager? = nil
+        syncManager: OfflineSyncManager? = nil,
+        useMocks: Bool = false
     ) {
-        self.claude = claude ?? MockClaudeService()
-        self.audio = audio ?? MockAudioService()
-        self.speechRecognition = speechRecognition ?? MockSpeechRecognitionService()
-        self.srsEngine = srsEngine ?? MockSRSEngine()
-        self.learnerModel = learnerModel ?? MockLearnerModelService()
-        self.mediaPlayer = mediaPlayer ?? MockMediaPlayerService()
-        self.auth = auth ?? MockAuthService()
-        self.subscription = subscription ?? MockSubscriptionService()
+        if useMocks {
+            self.claude = claude ?? MockClaudeService()
+            self.audio = audio ?? MockAudioService()
+            self.speechRecognition = speechRecognition ?? MockSpeechRecognitionService()
+            self.srsEngine = srsEngine ?? MockSRSEngine()
+            self.learnerModel = learnerModel ?? MockLearnerModelService()
+            self.mediaPlayer = mediaPlayer ?? MockMediaPlayerService()
+            self.auth = auth ?? MockAuthService()
+            self.subscription = subscription ?? MockSubscriptionService()
+            self.syncManager = syncManager ?? OfflineSyncManager()
+            return
+        }
+
+        let resolvedSubscription = subscription ?? StoreKitSubscriptionService()
+        self.subscription = resolvedSubscription
+        self.claude = claude ?? ClaudeService(
+            tierProvider: { resolvedSubscription.currentTier }
+        )
+        self.audio = audio ?? AudioService()
+        self.speechRecognition = speechRecognition ?? SpeechRecognitionService()
+        self.srsEngine = srsEngine ?? SRSEngine()
+        self.learnerModel = learnerModel ?? LearnerModelService()
+        self.mediaPlayer = mediaPlayer ?? AVMediaPlayerService()
+        self.auth = auth ?? Self.makeAuthService()
         self.syncManager = syncManager ?? OfflineSyncManager()
+    }
+
+    private static func makeAuthService() -> AuthServiceProtocol {
+        let config = AppEnvironment.current.supabaseConfig
+        guard config.isConfigured else {
+            return UnconfiguredAuthService()
+        }
+        let apiClient = APIClient(
+            baseURL: config.projectURL,
+            defaultHeaders: [
+                "apikey": config.anonKey,
+                "Content-Type": "application/json"
+            ]
+        )
+        return AuthService(apiClient: apiClient)
     }
 }
 
@@ -197,5 +229,28 @@ final class MockSubscriptionService: SubscriptionServiceProtocol, @unchecked Sen
 
     func checkEntitlement(feature: String) -> Bool {
         currentTier != .free
+    }
+}
+
+final class UnconfiguredAuthService: AuthServiceProtocol, @unchecked Sendable {
+    var currentSession: AuthSession? { nil }
+    var isAuthenticated: Bool { false }
+
+    func signInWithApple() async throws -> AuthSession {
+        throw AuthError.networkError
+    }
+
+    func signInWithEmail(email: String, password: String) async throws -> AuthSession {
+        throw AuthError.networkError
+    }
+
+    func signUp(email: String, password: String) async throws -> AuthSession {
+        throw AuthError.networkError
+    }
+
+    func signOut() async throws {}
+
+    func refreshSession() async throws -> AuthSession {
+        throw AuthError.notAuthenticated
     }
 }

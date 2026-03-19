@@ -4,6 +4,7 @@ struct JamoDetailView: View {
     let jamo: JamoEntry
     let step: HangulLessonViewModel.JamoLessonStep
     let pronunciationFeedback: PronunciationFeedback?
+    let pronunciationScore: PronunciationScore?
     let recognitionResult: SpeechRecognitionResult?
     let isRecording: Bool
 
@@ -173,12 +174,19 @@ struct JamoDetailView: View {
                     Text("Heard: \(result.transcript)")
                         .font(.title3)
 
-                    let isGood = result.confidence >= 0.8
+                    let overallScore = pronunciationScore?.overall ?? result.confidence
+                    let isGood = overallScore >= 0.78
                     Label(
                         isGood ? "Great pronunciation!" : "Let's improve that",
                         systemImage: isGood ? "checkmark.circle.fill" : "arrow.clockwise"
                     )
                     .foregroundStyle(isGood ? .green : .orange)
+
+                    if let pronunciationScore {
+                        Text("Jamo \(Int(pronunciationScore.jamoAccuracy * 100))% • Prosody \(Int(pronunciationScore.prosodyAccuracy * 100))%")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

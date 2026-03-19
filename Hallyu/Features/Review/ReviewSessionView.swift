@@ -1,8 +1,10 @@
 import SwiftUI
+import SwiftData
 
 struct ReviewSessionView: View {
     @State private var viewModel: ReviewSessionViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
 
     // ViewModel created at init time to capture service references
     init(items: [ReviewItem], services: ServiceContainer) {
@@ -108,7 +110,7 @@ struct ReviewSessionView: View {
             if viewModel.isShowingAnswer {
                 HStack(spacing: 16) {
                     Button {
-                        viewModel.submitAnswer(wasCorrect: false)
+                        submitAnswer(wasCorrect: false)
                     } label: {
                         Label("Again", systemImage: "xmark.circle.fill")
                             .font(.headline)
@@ -120,7 +122,7 @@ struct ReviewSessionView: View {
                     }
 
                     Button {
-                        viewModel.submitAnswer(wasCorrect: true)
+                        submitAnswer(wasCorrect: true)
                     } label: {
                         Label("Got it", systemImage: "checkmark.circle.fill")
                             .font(.headline)
@@ -174,11 +176,27 @@ struct ReviewSessionView: View {
     }
 
     private func displayText(for item: ReviewItem) -> String {
-        // In production, this would look up the actual content from the item's reference
-        item.itemType.contains("hangul") ? "한" : item.itemId.uuidString.prefix(4).uppercased()
+        if !item.promptText.isEmpty {
+            return item.promptText
+        }
+
+        if item.itemType.contains("hangul") {
+            return "한"
+        }
+
+        return item.itemId.uuidString.prefix(4).uppercased()
     }
 
     private func answerText(for item: ReviewItem) -> String {
-        item.itemType.contains("hangul") ? "han" : "Answer"
+        if !item.answerText.isEmpty {
+            return item.answerText
+        }
+
+        return item.itemType.contains("hangul") ? "han" : "Answer"
+    }
+
+    private func submitAnswer(wasCorrect: Bool) {
+        viewModel.submitAnswer(wasCorrect: wasCorrect)
+        try? modelContext.save()
     }
 }

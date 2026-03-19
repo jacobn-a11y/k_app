@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 
 enum SubtitleMode: String, CaseIterable {
     case none = "none"
@@ -25,6 +26,7 @@ enum SubtitleMode: String, CaseIterable {
 @Observable
 final class MediaPlayerViewModel {
     let content: MediaContent
+    let avPlayer: AVPlayer?
     var isPlaying: Bool = false
     var currentTime: Double = 0
     var playbackRate: Float = 1.0
@@ -63,17 +65,35 @@ final class MediaPlayerViewModel {
         content.contentType == "webtoon" || content.contentType == "news"
     }
 
+    var hasPlayableMedia: Bool {
+        avPlayer != nil
+    }
+
     init(content: MediaContent) {
         self.content = content
+        if let url = URL(string: content.mediaUrl),
+           let scheme = url.scheme?.lowercased(),
+           ["https", "http", "file"].contains(scheme) {
+            self.avPlayer = AVPlayer(url: url)
+        } else {
+            self.avPlayer = nil
+        }
     }
 
     func togglePlayback() {
         isPlaying.toggle()
+        if isPlaying {
+            avPlayer?.play()
+            avPlayer?.rate = playbackRate
+        } else {
+            avPlayer?.pause()
+        }
     }
 
     func seek(to time: Double) {
         currentTime = max(0, min(time, duration))
-        updateCurrentSegment()
+        avPlayer?.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
+        refreshPlaybackProgress()
     }
 
     func seekForward(_ seconds: Double = 10) {
@@ -113,7 +133,14 @@ final class MediaPlayerViewModel {
             return
         }
         let nextIndex = (currentIndex + 1) % Self.playbackRates.count
-        playbackRate = Self.playbackRates[nextIndex]
+        setPlaybackRate(Self.playbackRates[nextIndex])
+    }
+
+    func setPlaybackRate(_ rate: Float) {
+        playbackRate = rate
+        if isPlaying {
+            avPlayer?.rate = playbackRate
+        }
     }
 
     func tapWord(_ word: String) {
@@ -126,7 +153,11 @@ final class MediaPlayerViewModel {
         highlightedWord = nil
     }
 
-    private func updateCurrentSegment() {
+    func refreshPlaybackProgress() {
+        if let playerTime = avPlayer?.currentTime().seconds,
+           playerTime.isFinite {
+            currentTime = playerTime
+        }
         let timeMs = Int(currentTime * 1000)
         if let index = segments.firstIndex(where: { timeMs >= $0.startMs && timeMs < $0.endMs }) {
             currentSegmentIndex = index
@@ -137,8 +168,15 @@ final class MediaPlayerViewModel {
 // MARK: - MediaPlayerView
 
 struct MediaPlayerView: View {
-    @Environment(ServiceContainer.self) private var services
+    @Environment(AppState.self) private var appState
+    @Environment(\.subtitleModeOverride) private var subtitleModeOverride
+    @AppStorage("highContrastMode") private var highContrastMode: Bool = false
+    @AppStorage("defaultPlaybackSpeed") private var defaultPlaybackSpeed: Double = 1.0
+    @AppStorage("defaultSubtitleMode") private var defaultSubtitleMode: String = "korean"
+    @AppStorage("showRomanization") private var showRomanization: Bool = true
     @State private var viewModel: MediaPlayerViewModel
+    @State private var didApplySubtitleOverride = false
+    private let playbackTimer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     init(content: MediaContent) {
         _viewModel = State(initialValue: MediaPlayerViewModel(content: content))
@@ -170,25 +208,62 @@ struct MediaPlayerView: View {
         .sheet(isPresented: $viewModel.showWordDetail) {
             wordDetailSheet
         }
+        .onReceive(playbackTimer) { _ in
+            guard viewModel.isPlaying else { return }
+            viewModel.refreshPlaybackProgress()
+        }
+        .onAppear {
+            guard !didApplySubtitleOverride else { return }
+            viewModel.setPlaybackRate(Float(defaultPlaybackSpeed))
+            if let subtitleModeOverride {
+                viewModel.subtitleMode = subtitleModeOverride
+            } else {
+                viewModel.subtitleMode = subtitleModeFromSettings(defaultSubtitleMode)
+            }
+            didApplySubtitleOverride = true
+        }
+        .onChange(of: subtitleModeOverride) { _, override in
+            guard let override else { return }
+            viewModel.subtitleMode = override
+        }
+        .onChange(of: defaultPlaybackSpeed) { _, speed in
+            viewModel.setPlaybackRate(Float(speed))
+        }
+        .onChange(of: defaultSubtitleMode) { _, mode in
+            guard subtitleModeOverride == nil else { return }
+            viewModel.subtitleMode = subtitleModeFromSettings(mode)
+        }
+        .onDisappear {
+            viewModel.avPlayer?.pause()
+            viewModel.isPlaying = false
+        }
     }
 
     // MARK: - Video Player Area
 
     private var videoPlayerArea: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 0)
-                .fill(Color.black)
-                .frame(height: 220)
-                .overlay {
-                    VStack {
-                        Image(systemName: "play.circle.fill")
-                            .scaledFont(size: 48)
-                            .foregroundStyle(.white.opacity(0.7))
-                        Text("Video Player")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
+            if let player = viewModel.avPlayer, viewModel.hasPlayableMedia {
+                VideoPlayer(player: player)
+                    .frame(height: 220)
+                    .onAppear {
+                        player.pause()
                     }
-                }
+            } else {
+                RoundedRectangle(cornerRadius: 0)
+                    .fill(Color.black)
+                    .frame(height: 220)
+                    .overlay {
+                        VStack(spacing: 8) {
+                            Image(systemName: "video.slash.fill")
+                                .scaledFont(size: 32)
+                                .foregroundStyle(.white.opacity(0.75))
+                            Text("No playable stream for this item")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+            }
         }
     }
 
@@ -217,15 +292,25 @@ struct MediaPlayerView: View {
             tappableText(segment.textKr)
                 .fontWeight(isActive ? .medium : .regular)
 
+            if showRomanization && HangulUtilities.containsKorean(segment.textKr) {
+                Text(romanizedText(for: segment.textKr))
+                    .font(.caption)
+                    .foregroundStyle(highContrastMode ? Color.primary : .secondary)
+            }
+
             if viewModel.subtitleMode == .koreanAndEnglish {
                 Text(segment.textEn)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(highContrastMode ? Color.primary : .secondary)
             }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
-        .background(isActive ? Color.accentColor.opacity(0.1) : Color.clear)
+        .background(
+            isActive
+                ? (highContrastMode ? Color.primary.opacity(0.18) : Color.accentColor.opacity(0.1))
+                : Color.clear
+        )
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .onTapGesture {
             viewModel.currentSegmentIndex = index
@@ -257,17 +342,24 @@ struct MediaPlayerView: View {
                 tappableText(segment.textKr)
                     .padding(.horizontal)
 
+                if showRomanization && HangulUtilities.containsKorean(segment.textKr) {
+                    Text(romanizedText(for: segment.textKr))
+                        .font(.caption)
+                        .foregroundStyle(highContrastMode ? Color.primary : .secondary)
+                        .padding(.horizontal)
+                }
+
                 if viewModel.subtitleMode == .koreanAndEnglish {
                     Text(segment.textEn)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(highContrastMode ? Color.primary : .secondary)
                         .padding(.horizontal)
                 }
             }
         }
         .frame(minHeight: 60)
         .padding(.vertical, 8)
-        .background(Color(.systemGray6))
+        .background(highContrastMode ? Color(.systemGray5) : Color(.systemGray6))
     }
 
     // MARK: - Player Controls
@@ -279,6 +371,7 @@ struct MediaPlayerView: View {
                 Text(formatTime(viewModel.currentTime))
                     .font(.caption2)
                     .monospacedDigit()
+                    .foregroundStyle(highContrastMode ? Color.primary : .secondary)
 
                 Slider(value: $viewModel.currentTime, in: 0...max(viewModel.duration, 1)) { editing in
                     if !editing {
@@ -289,6 +382,7 @@ struct MediaPlayerView: View {
                 Text(formatTime(viewModel.duration))
                     .font(.caption2)
                     .monospacedDigit()
+                    .foregroundStyle(highContrastMode ? Color.primary : .secondary)
             }
             .padding(.horizontal)
 
@@ -343,9 +437,10 @@ struct MediaPlayerView: View {
                     Text("\(viewModel.playbackRate, specifier: "%.1f")x")
                         .font(.caption)
                         .fontWeight(.semibold)
+                        .foregroundStyle(highContrastMode ? Color.white : Color.primary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color(.systemGray5))
+                        .background(highContrastMode ? Color.black.opacity(0.8) : Color(.systemGray5))
                         .clipShape(Capsule())
                 }
             }
@@ -377,7 +472,7 @@ struct MediaPlayerView: View {
         Section("Speed") {
             ForEach(MediaPlayerViewModel.playbackRates, id: \.self) { rate in
                 Button {
-                    viewModel.playbackRate = rate
+                    viewModel.setPlaybackRate(rate)
                 } label: {
                     HStack {
                         Text("\(rate, specifier: "%.1f")x")
@@ -393,40 +488,20 @@ struct MediaPlayerView: View {
     // MARK: - Word Detail Sheet
 
     private var wordDetailSheet: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                if let word = viewModel.highlightedWord {
-                    Text(word)
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-
-                    if let rank = KoreanTextAnalyzer.frequencyRank(for: word) {
-                        Text("Frequency rank: #\(rank)")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Divider()
-
-                    Text("Tap to get Claude's explanation")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-
-                    Button("Add to Review") {
-                        viewModel.dismissWordDetail()
-                    }
-                    .buttonStyle(.borderedProminent)
+        Group {
+            if let word = viewModel.highlightedWord {
+                ClaudeWordCoachSheet(
+                    mediaContentId: viewModel.content.id,
+                    word: word,
+                    mediaTitle: viewModel.content.title,
+                    transcript: viewModel.currentSegment?.textKr ?? viewModel.content.transcriptKr,
+                    learnerLevel: appState.currentCEFRLevel.rawValue,
+                    userId: appState.currentUserId ?? UUID()
+                ) {
+                    viewModel.dismissWordDetail()
                 }
-
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Word Detail")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { viewModel.dismissWordDetail() }
-                }
+            } else {
+                ContentUnavailableView("No Word Selected", systemImage: "text.cursor")
             }
         }
         .presentationDetents([.medium])
@@ -438,6 +513,152 @@ struct MediaPlayerView: View {
         let mins = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", mins, secs)
+    }
+
+    private func subtitleModeFromSettings(_ value: String) -> SubtitleMode {
+        switch value.lowercased() {
+        case "none":
+            return .none
+        case "both":
+            return .koreanAndEnglish
+        default:
+            return .koreanOnly
+        }
+    }
+
+    private func romanizedText(for text: String) -> String {
+        HangulUtilities.romanize(text)
+    }
+}
+
+// MARK: - Claude Coach Sheet
+
+private struct ClaudeWordCoachSheet: View {
+    enum Tool: String, CaseIterable, Identifiable {
+        case comprehension
+        case grammar
+        case culture
+        case practice
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .comprehension: return "Meaning"
+            case .grammar: return "Grammar"
+            case .culture: return "Culture"
+            case .practice: return "Practice"
+            }
+        }
+    }
+
+    @Environment(ServiceContainer.self) private var services
+    @Environment(AppState.self) private var appState
+
+    let mediaContentId: UUID
+    let word: String
+    let mediaTitle: String
+    let transcript: String
+    let learnerLevel: String
+    let userId: UUID
+    let onClose: () -> Void
+
+    @State private var selectedTool: Tool = .comprehension
+    @State private var didInitialize = false
+    @State private var comprehensionVM: ComprehensionCoachViewModel?
+    @State private var grammarVM: GrammarExplainerViewModel?
+    @State private var culturalVM: CulturalContextViewModel?
+    @State private var contentAdapterVM: ContentAdapterViewModel?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Picker("Claude Tools", selection: $selectedTool) {
+                    ForEach(Tool.allCases) { tool in
+                        Text(tool.label).tag(tool)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                switch selectedTool {
+                case .comprehension:
+                    if let comprehensionVM {
+                        ComprehensionCoachView(
+                            viewModel: comprehensionVM,
+                            transcript: transcript,
+                            learnerLevel: learnerLevel,
+                            knownVocabulary: [],
+                            userId: userId
+                        )
+                    }
+                case .grammar:
+                    if let grammarVM {
+                        GrammarExplainerView(viewModel: grammarVM, userId: userId)
+                    }
+                case .culture:
+                    if let culturalVM {
+                        CulturalContextView(viewModel: culturalVM)
+                    }
+                case .practice:
+                    if let contentAdapterVM {
+                        ContentAdapterView(viewModel: contentAdapterVM, userId: userId)
+                    }
+                }
+            }
+            .padding()
+            .navigationTitle(word)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", action: onClose)
+                }
+            }
+        }
+        .task {
+            await initializeIfNeeded()
+        }
+    }
+
+    private func initializeIfNeeded() async {
+        guard !didInitialize else { return }
+        didInitialize = true
+
+        let comprehension = ComprehensionCoachViewModel(
+            claudeService: services.claude,
+            learnerModel: services.learnerModel,
+            subscriptionTier: appState.subscriptionTier
+        )
+        comprehension.onWordTapped(
+            word: word,
+            mediaTitle: mediaTitle,
+            transcript: transcript,
+            learnerLevel: learnerLevel,
+            knownVocabulary: []
+        )
+
+        let grammar = GrammarExplainerViewModel(
+            claudeService: services.claude,
+            learnerModel: services.learnerModel
+        )
+        let grammarPattern = KoreanTextAnalyzer.detectGrammarPatterns(in: transcript).first ?? word
+        grammar.presentGrammar(pattern: grammarPattern, mediaContext: transcript)
+
+        let cultural = CulturalContextViewModel(claudeService: services.claude)
+        await cultural.flagMoment(moment: transcript, mediaContext: mediaTitle)
+
+        let contentAdapter = ContentAdapterViewModel(
+            claudeService: services.claude,
+            learnerModel: services.learnerModel
+        )
+        await contentAdapter.generateExercises(
+            mediaContentId: mediaContentId,
+            learnerLevel: learnerLevel
+        )
+
+        comprehensionVM = comprehension
+        grammarVM = grammar
+        culturalVM = cultural
+        contentAdapterVM = contentAdapter
     }
 }
 
@@ -463,5 +684,18 @@ struct WrappingHStack<Content: View>: View {
 extension Array {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+// MARK: - Subtitle Mode Override Environment Key
+
+private struct SubtitleModeOverrideKey: EnvironmentKey {
+    static let defaultValue: SubtitleMode? = nil
+}
+
+extension EnvironmentValues {
+    var subtitleModeOverride: SubtitleMode? {
+        get { self[SubtitleModeOverrideKey.self] }
+        set { self[SubtitleModeOverrideKey.self] = newValue }
     }
 }

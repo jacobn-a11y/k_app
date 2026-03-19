@@ -54,6 +54,11 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
 
     /// In-memory store for development. Production would use SwiftData/Supabase.
     private var masteryStore: [String: SkillMastery] = [:]
+    private let storageKey = "com.hallyu.learnerModel.masteryStore"
+
+    init() {
+        loadPersistedStore()
+    }
 
     private func storeKey(userId: UUID, skillType: String, skillId: String) -> String {
         "\(userId)_\(skillType)_\(skillId)"
@@ -95,6 +100,7 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
         mastery.lastAssessedAt = Date()
 
         masteryStore[key] = mastery
+        savePersistedStore()
     }
 
     func getMastery(userId: UUID, skillType: String, skillId: String) async throws -> SkillMastery? {
@@ -174,5 +180,19 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
     /// Reset mastery store (for testing).
     func reset() {
         masteryStore.removeAll()
+        savePersistedStore()
+    }
+
+    private func savePersistedStore() {
+        guard let data = try? JSONEncoder().encode(masteryStore) else { return }
+        KeychainHelper.save(data, forKey: storageKey)
+    }
+
+    private func loadPersistedStore() {
+        guard let data = KeychainHelper.load(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode([String: SkillMastery].self, from: data) else {
+            return
+        }
+        masteryStore = decoded
     }
 }

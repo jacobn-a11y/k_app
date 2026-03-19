@@ -3,6 +3,7 @@ import SwiftUI
 struct OfflineBanner: View {
     let isOffline: Bool
     let pendingSyncCount: Int
+    @AppStorage("highContrastMode") private var highContrastMode: Bool = false
 
     var body: some View {
         if isOffline {
@@ -16,19 +17,19 @@ struct OfflineBanner: View {
                 if pendingSyncCount > 0 {
                     Text("(\(pendingSyncCount) pending)")
                         .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.8))
+                        .foregroundStyle(highContrastMode ? Color.white : Color.white.opacity(0.8))
                 }
 
                 Spacer()
 
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(highContrastMode ? Color.white : Color.white.opacity(0.7))
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(Color.orange)
+            .background(highContrastMode ? Color.black : Color.orange)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Offline mode. \(pendingSyncCount) changes pending sync.")
         }

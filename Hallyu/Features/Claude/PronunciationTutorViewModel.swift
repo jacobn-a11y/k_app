@@ -20,6 +20,7 @@ final class PronunciationTutorViewModel {
     private(set) var targetText: String = ""
     private(set) var recognizedTranscript: String = ""
     private(set) var feedback: PronunciationFeedback?
+    private(set) var pronunciationScore: PronunciationScore?
     private(set) var attemptCount: Int = 0
     private(set) var errorPatterns: [String] = []
 
@@ -47,6 +48,7 @@ final class PronunciationTutorViewModel {
         targetText = text
         attemptCount = 0
         feedback = nil
+        pronunciationScore = nil
         errorPatterns = []
         phase = .idle
     }
@@ -70,18 +72,22 @@ final class PronunciationTutorViewModel {
             let asrResult = try await speechRecognition.recognizeSpeech(from: audioURL)
             recognizedTranscript = asrResult.transcript
 
-            if asrResult.transcript.lowercased() == targetText.lowercased()
-                && asrResult.confidence >= Self.asrConfidenceThreshold {
-                // ASR match — success without Claude
+            let score = PronunciationScorer.evaluate(
+                transcript: asrResult.transcript,
+                target: targetText,
+                asrConfidence: asrResult.confidence
+            )
+            pronunciationScore = score
+
+            if score.overall >= 0.75 && score.jamoAccuracy >= Self.asrConfidenceThreshold {
                 feedback = PronunciationFeedback(
                     isCorrect: true,
-                    feedback: "Your pronunciation sounds correct!",
+                    feedback: "Your pronunciation sounds accurate and clear.",
                     articulatoryTip: nil,
                     similarSounds: []
                 )
                 phase = .showingFeedback
             } else {
-                // Below threshold — ask Claude for coaching
                 let claudeFeedback = try await claudeService.getPronunciationFeedback(
                     transcript: asrResult.transcript,
                     target: targetText
@@ -104,6 +110,7 @@ final class PronunciationTutorViewModel {
 
     func tryAgain() {
         feedback = nil
+        pronunciationScore = nil
         phase = .idle
     }
 
@@ -112,6 +119,7 @@ final class PronunciationTutorViewModel {
         targetText = ""
         recognizedTranscript = ""
         feedback = nil
+        pronunciationScore = nil
         attemptCount = 0
         errorPatterns = []
     }

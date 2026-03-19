@@ -7,6 +7,9 @@ final class ReviewItem: Codable {
     var userId: UUID
     var itemType: String
     var itemId: UUID
+    var promptText: String
+    var answerText: String
+    var sourceContext: String
     var easeFactor: Double
     var intervalDays: Double
     var halfLifeDays: Double
@@ -22,6 +25,9 @@ final class ReviewItem: Codable {
         userId: UUID,
         itemType: String,
         itemId: UUID,
+        promptText: String = "",
+        answerText: String = "",
+        sourceContext: String = "",
         easeFactor: Double = 2.5,
         intervalDays: Double = 0,
         halfLifeDays: Double = 1.0,
@@ -36,6 +42,9 @@ final class ReviewItem: Codable {
         self.userId = userId
         self.itemType = itemType
         self.itemId = itemId
+        self.promptText = promptText
+        self.answerText = answerText
+        self.sourceContext = sourceContext
         self.easeFactor = easeFactor
         self.intervalDays = intervalDays
         self.halfLifeDays = halfLifeDays
@@ -54,6 +63,9 @@ final class ReviewItem: Codable {
         case userId = "user_id"
         case itemType = "item_type"
         case itemId = "item_id"
+        case promptText = "prompt_text"
+        case answerText = "answer_text"
+        case sourceContext = "source_context"
         case easeFactor = "ease_factor"
         case intervalDays = "interval_days"
         case halfLifeDays = "half_life_days"
@@ -71,6 +83,9 @@ final class ReviewItem: Codable {
         userId = try container.decode(UUID.self, forKey: .userId)
         itemType = try container.decode(String.self, forKey: .itemType)
         itemId = try container.decode(UUID.self, forKey: .itemId)
+        promptText = try container.decodeIfPresent(String.self, forKey: .promptText) ?? ""
+        answerText = try container.decodeIfPresent(String.self, forKey: .answerText) ?? ""
+        sourceContext = try container.decodeIfPresent(String.self, forKey: .sourceContext) ?? ""
         easeFactor = try container.decodeIfPresent(Double.self, forKey: .easeFactor) ?? 2.5
         intervalDays = try container.decodeIfPresent(Double.self, forKey: .intervalDays) ?? 0
         halfLifeDays = try container.decodeIfPresent(Double.self, forKey: .halfLifeDays) ?? 1.0
@@ -88,6 +103,9 @@ final class ReviewItem: Codable {
         try container.encode(userId, forKey: .userId)
         try container.encode(itemType, forKey: .itemType)
         try container.encode(itemId, forKey: .itemId)
+        try container.encode(promptText, forKey: .promptText)
+        try container.encode(answerText, forKey: .answerText)
+        try container.encode(sourceContext, forKey: .sourceContext)
         try container.encode(easeFactor, forKey: .easeFactor)
         try container.encode(intervalDays, forKey: .intervalDays)
         try container.encode(halfLifeDays, forKey: .halfLifeDays)

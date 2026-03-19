@@ -12,6 +12,9 @@ struct MediaLibraryView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if !services.subscription.checkEntitlement(feature: SubscriptionFeature.allMedia.rawValue) {
+                    freeTierBanner
+                }
                 contentTypeBar
                 filterBar
                 contentGrid
@@ -19,10 +22,10 @@ struct MediaLibraryView: View {
             .navigationTitle("Media Library")
             .searchable(text: searchQueryBinding, prompt: "Search media...")
             .onChange(of: mediaContent) { _, newContent in
-                viewModel.loadContent(from: newContent)
+                viewModel.loadContent(from: accessibleContent(from: newContent))
             }
             .onAppear {
-                viewModel.loadContent(from: mediaContent)
+                viewModel.loadContent(from: accessibleContent(from: mediaContent))
             }
             .sheet(isPresented: $showFilters) {
                 filterSheet
@@ -34,6 +37,20 @@ struct MediaLibraryView: View {
     }
 
     // MARK: - Content Type Bar
+
+    private var freeTierBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lock.fill")
+                .foregroundStyle(.orange)
+            Text("Free tier: preview library. Upgrade for full media access.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
+    }
 
     private var contentTypeBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -258,6 +275,18 @@ struct MediaLibraryView: View {
             get: { viewModel.filters.searchQuery },
             set: { viewModel.updateSearchQuery($0) }
         )
+    }
+
+    private func accessibleContent(from content: [MediaContent]) -> [MediaContent] {
+        if services.subscription.checkEntitlement(feature: SubscriptionFeature.allMedia.rawValue) {
+            return content
+        }
+
+        let freeTierContent = content.filter { item in
+            item.cefrLevel == "pre-A1" || item.cefrLevel == "A1"
+        }
+
+        return Array(freeTierContent.prefix(15))
     }
 }
 

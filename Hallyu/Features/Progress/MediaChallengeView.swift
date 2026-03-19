@@ -22,6 +22,7 @@ final class MediaChallengeViewModel {
     private(set) var answers: [ChallengeAnswer] = []
     private(set) var report: ChallengeReport?
     private(set) var isLoading: Bool = false
+    private var questionStartedAt: Date = Date()
 
     let claudeService: ClaudeServiceProtocol
     let learnerModel: LearnerModelServiceProtocol
@@ -94,6 +95,7 @@ final class MediaChallengeViewModel {
     }
 
     func completeMediaPlayback() {
+        questionStartedAt = Date()
         phase = .questions
     }
 
@@ -107,10 +109,11 @@ final class MediaChallengeViewModel {
         return Double(currentQuestionIndex) / Double(questions.count)
     }
 
-    func submitAnswer(_ answer: String, responseTime: TimeInterval) {
+    func submitAnswer(_ answer: String) {
         guard currentQuestionIndex < questions.count else { return }
         let question = questions[currentQuestionIndex]
         let isCorrect = answer == question.correctAnswer
+        let responseTime = Date().timeIntervalSince(questionStartedAt)
 
         let result = ChallengeAnswer(
             questionId: question.id,
@@ -120,6 +123,7 @@ final class MediaChallengeViewModel {
         )
         answers.append(result)
         currentQuestionIndex += 1
+        questionStartedAt = Date()
 
         if currentQuestionIndex >= questions.count {
             buildReport()
@@ -132,50 +136,124 @@ final class MediaChallengeViewModel {
     private func generateQuestions() {
         guard let content = challengeContent else { return }
 
-        // Generate comprehension questions based on the media content
-        // In production, these would come from Claude or a pre-authored question bank
+        let analysis = KoreanTextAnalyzer.analyzeText(content.transcriptKr)
+        let primaryTag = content.tags.first?.capitalized ?? "Daily Life"
+        let topicOptions = makeOptions(
+            correct: primaryTag,
+            distractors: ["Relationships", "Work", "Travel", "Food", "School"]
+        )
+
+        let grammarPattern = analysis.detectedGrammarPatterns.first ?? "polite ending -아/어요"
+        let grammarOptions = makeOptions(
+            correct: grammarPattern,
+            distractors: [
+                "contrast -지만",
+                "conditional -으면/면",
+                "honorific -세요",
+                "reason -기 때문에"
+            ]
+        )
+
+        let salientWord = analysis.tokens
+            .sorted {
+                (KoreanTextAnalyzer.frequencyRank(for: $0) ?? Int.max) <
+                (KoreanTextAnalyzer.frequencyRank(for: $1) ?? Int.max)
+            }
+            .first ?? "한국어"
+
+        let vocabOptions = makeOptions(
+            correct: salientWord,
+            distractors: ["시간", "사람", "마음", "여행", "음식"]
+        )
+
+        let formality = estimateFormality(from: content.transcriptKr)
+        let formalityOptions = makeOptions(
+            correct: formality,
+            distractors: ["Very formal", "Casual", "Mixed", "Narrative"]
+        )
+
+        let tone = estimateTone(from: content.transcriptKr)
+        let toneOptions = makeOptions(
+            correct: tone,
+            distractors: ["Happy", "Neutral", "Worried", "Excited", "Serious"]
+        )
+
         questions = [
             ChallengeQuestion(
                 id: UUID(),
                 prompt: "What is the main topic of this content?",
-                options: ["Daily life", "Travel", "Work", "Food"],
-                correctAnswer: "Daily life",
-                skillTested: "listening",
+                options: topicOptions,
+                correctAnswer: primaryTag,
+                skillTested: content.durationSeconds > 0 ? "listening" : "reading",
                 cefrLevel: learnerLevel
             ),
             ChallengeQuestion(
                 id: UUID(),
                 prompt: "Which grammar pattern is used most frequently?",
-                options: ["-아/어요", "-습니다", "-고 싶다", "-을 수 있다"],
-                correctAnswer: "-아/어요",
+                options: grammarOptions,
+                correctAnswer: grammarPattern,
                 skillTested: "grammar",
                 cefrLevel: learnerLevel
             ),
             ChallengeQuestion(
                 id: UUID(),
-                prompt: "What vocabulary category is most represented?",
-                options: ["Emotions", "Actions", "Places", "Time"],
-                correctAnswer: "Actions",
+                prompt: "Which keyword appears as a core idea in this content?",
+                options: vocabOptions,
+                correctAnswer: salientWord,
                 skillTested: "vocab_recognition",
                 cefrLevel: learnerLevel
             ),
             ChallengeQuestion(
                 id: UUID(),
                 prompt: "What is the formality level of the dialogue?",
-                options: ["Very formal", "Polite", "Casual", "Mixed"],
-                correctAnswer: "Polite",
+                options: formalityOptions,
+                correctAnswer: formality,
                 skillTested: "grammar",
                 cefrLevel: learnerLevel
             ),
             ChallengeQuestion(
                 id: UUID(),
                 prompt: "Which word best summarizes the speaker's tone?",
-                options: ["Happy", "Worried", "Neutral", "Angry"],
-                correctAnswer: "Neutral",
-                skillTested: "listening",
+                options: toneOptions,
+                correctAnswer: tone,
+                skillTested: content.durationSeconds > 0 ? "listening" : "reading",
                 cefrLevel: learnerLevel
             ),
         ]
+    }
+
+    private func makeOptions(correct: String, distractors: [String]) -> [String] {
+        var options = Array(distractors.prefix(3))
+        if !options.contains(correct) {
+            options.append(correct)
+        }
+        return options.shuffled()
+    }
+
+    private func estimateFormality(from transcript: String) -> String {
+        if transcript.contains("습니다") || transcript.contains("하십시오") {
+            return "Very formal"
+        }
+        if transcript.contains("요") {
+            return "Polite"
+        }
+        if transcript.contains("야") || transcript.contains("해?") {
+            return "Casual"
+        }
+        return "Mixed"
+    }
+
+    private func estimateTone(from transcript: String) -> String {
+        if transcript.contains("!") {
+            return "Excited"
+        }
+        if transcript.contains("미안") || transcript.contains("걱정") {
+            return "Worried"
+        }
+        if transcript.contains("좋") || transcript.contains("행복") {
+            return "Happy"
+        }
+        return "Neutral"
     }
 
     private func buildReport() {
@@ -350,16 +428,11 @@ struct MediaChallengeView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                // Placeholder for media player
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemGray5))
-                    .frame(height: 200)
-                    .overlay {
-                        Image(systemName: "play.circle.fill")
-                            .scaledFont(size: 48)
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("Media content: \(content.title)")
+                MediaPlayerView(content: content)
+                    .environment(\.subtitleModeOverride, .none)
+                    .frame(maxHeight: 420)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityLabel("Challenge media content: \(content.title)")
 
                 Spacer()
 
@@ -399,7 +472,7 @@ struct MediaChallengeView: View {
                 VStack(spacing: 10) {
                     ForEach(question.options, id: \.self) { option in
                         Button {
-                            viewModel.submitAnswer(option, responseTime: 5.0)
+                            viewModel.submitAnswer(option)
                         } label: {
                             Text(option)
                                 .frame(maxWidth: .infinity)

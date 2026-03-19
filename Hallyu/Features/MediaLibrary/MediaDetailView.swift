@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct MediaDetailView: View {
+    @Environment(ServiceContainer.self) private var services
+    @Environment(AppState.self) private var appState
     let content: MediaContent
     let viewModel: MediaLibraryViewModel
-    @State private var showPlayer = false
+    @State private var showLesson = false
 
     var body: some View {
         ScrollView {
@@ -21,13 +23,18 @@ struct MediaDetailView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Start Lesson") {
-                    showPlayer = true
+                    showLesson = true
                 }
                 .buttonStyle(.borderedProminent)
             }
         }
-        .navigationDestination(isPresented: $showPlayer) {
-            MediaPlayerView(content: content)
+        .navigationDestination(isPresented: $showLesson) {
+            MediaLessonView(
+                content: content,
+                userId: appState.currentUserId ?? UUID(),
+                learnerLevel: appState.currentCEFRLevel.rawValue,
+                services: services
+            )
         }
     }
 

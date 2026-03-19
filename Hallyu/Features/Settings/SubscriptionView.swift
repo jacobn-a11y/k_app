@@ -67,7 +67,7 @@ struct SubscriptionView: View {
             // Core tier
             TierCard(
                 name: "Core",
-                price: selectedBilling == .monthly ? "$12.99/mo" : "$99.99/yr",
+                price: corePrice,
                 features: [
                     "Claude AI Korean coach (50/day)",
                     "Full media library",
@@ -78,16 +78,18 @@ struct SubscriptionView: View {
                 isPopular: true,
                 isLoading: isLoading
             ) {
-                let productId = selectedBilling == .monthly
-                    ? SubscriptionProductId.coreMonthly.rawValue
-                    : SubscriptionProductId.coreAnnual.rawValue
+                guard let productId = coreProductId else {
+                    purchaseError = "Core product is not available in this storefront."
+                    showError = true
+                    return
+                }
                 await purchaseProduct(productId)
             }
 
             // Pro tier
             TierCard(
                 name: "Pro",
-                price: selectedBilling == .monthly ? "$19.99/mo" : "$149.99/yr",
+                price: proPrice,
                 features: [
                     "Everything in Core",
                     "Unlimited Claude AI coaching",
@@ -98,9 +100,11 @@ struct SubscriptionView: View {
                 isPopular: false,
                 isLoading: isLoading
             ) {
-                let productId = selectedBilling == .monthly
-                    ? SubscriptionProductId.proMonthly.rawValue
-                    : SubscriptionProductId.proAnnual.rawValue
+                guard let productId = proProductId else {
+                    purchaseError = "Pro product is not available in this storefront."
+                    showError = true
+                    return
+                }
                 await purchaseProduct(productId)
             }
         }
@@ -164,6 +168,34 @@ struct SubscriptionView: View {
             purchaseError = error.localizedDescription
             showError = true
         }
+    }
+
+    private var coreProductId: String? {
+        if selectedBilling == .monthly {
+            return products.first(where: { $0.id == SubscriptionProductId.coreMonthly.rawValue })?.id
+        }
+        return products.first(where: { $0.id == SubscriptionProductId.coreAnnual.rawValue })?.id
+    }
+
+    private var proProductId: String? {
+        if selectedBilling == .monthly {
+            return products.first(where: { $0.id == SubscriptionProductId.proMonthly.rawValue })?.id
+        }
+        return products.first(where: { $0.id == SubscriptionProductId.proAnnual.rawValue })?.id
+    }
+
+    private var corePrice: String {
+        if let id = coreProductId, let product = products.first(where: { $0.id == id }) {
+            return product.priceFormatted
+        }
+        return selectedBilling == .monthly ? "$12.99/mo" : "$99.99/yr"
+    }
+
+    private var proPrice: String {
+        if let id = proProductId, let product = products.first(where: { $0.id == id }) {
+            return product.priceFormatted
+        }
+        return selectedBilling == .monthly ? "$19.99/mo" : "$149.99/yr"
     }
 }
 

@@ -4,9 +4,10 @@ enum ClaudePrompts {
     // MARK: - System Prompts
 
     static func systemPrompt(learnerLevel: String) -> String {
+        let safeLearnerLevel = sanitize(learnerLevel, maxLength: 16)
         """
         You are a Korean language learning coach integrated into a media-based learning app. \
-        The learner's current CEFR level is \(learnerLevel).
+        The learner's current CEFR level is \(safeLearnerLevel).
 
         Your role is to help learners understand Korean through authentic media content \
         (K-dramas, webtoons, news, music). Always:
@@ -74,14 +75,45 @@ enum ClaudePrompts {
     // MARK: - Input Sanitization
 
     /// Sanitize user-provided input to prevent prompt injection
-    private static func sanitize(_ input: String) -> String {
-        input
-            .replacingOccurrences(of: "[SYSTEM]", with: "")
-            .replacingOccurrences(of: "[INSTRUCTION]", with: "")
-            .replacingOccurrences(of: "\\n\\nHuman:", with: "")
-            .replacingOccurrences(of: "\\n\\nAssistant:", with: "")
-            .prefix(2000)
-            .description
+    private static func sanitize(_ input: String, maxLength: Int = 2000) -> String {
+        var cleaned = input
+
+        let blockedPatterns = [
+            #"(?i)\[/?(system|instruction|developer|assistant|user)\]"#,
+            #"(?i)\b(system|instruction|developer|assistant|user)\s*:"#,
+            #"(?i)\b(ignore|disregard)\b.{0,80}\b(previous|above|system|instruction|prompt)s?\b"#,
+            #"(?i)\b(act|behave)\s+as\b"#,
+            #"(?i)```"#
+        ]
+
+        for pattern in blockedPatterns {
+            cleaned = cleaned.replacingOccurrences(
+                of: pattern,
+                with: "",
+                options: .regularExpression
+            )
+        }
+
+        let allowedScalars = cleaned.unicodeScalars.filter { scalar in
+            !scalar.properties.isControl || scalar == "\n" || scalar == "\t"
+        }
+        cleaned = String(String.UnicodeScalarView(allowedScalars))
+        cleaned = cleaned
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return String(cleaned.prefix(maxLength))
+    }
+
+    private static func sanitizeList(
+        _ inputs: [String],
+        maxItems: Int = 20,
+        maxLength: Int = 120
+    ) -> [String] {
+        inputs
+            .prefix(maxItems)
+            .map { sanitize($0, maxLength: maxLength) }
+            .filter { !$0.isEmpty }
     }
 
     // MARK: - User Prompts
@@ -91,13 +123,15 @@ enum ClaudePrompts {
         let safeQuery = sanitize(query)
         let safeWord = sanitize(context.targetWord)
         let safeTitle = sanitize(context.mediaTitle)
+        let safeLearnerLevel = sanitize(context.learnerLevel, maxLength: 16)
+        let safeVocabulary = sanitizeList(context.knownVocabulary, maxItems: 20, maxLength: 64)
         return """
         Media: "\(safeTitle)"
         Transcript context: "\(safeTranscript)"
         Target word/phrase: "\(safeWord)"
         Learner question: "\(safeQuery)"
-        Learner level: \(context.learnerLevel)
-        Known vocabulary: \(context.knownVocabulary.prefix(20).joined(separator: ", "))
+        Learner level: \(safeLearnerLevel)
+        Known vocabulary: \(safeVocabulary.joined(separator: ", "))
 
         Provide a JSON response with these fields:
         {
@@ -111,9 +145,11 @@ enum ClaudePrompts {
     }
 
     static func comprehensionRetrievalPrompt(targetWord: String, learnerLevel: String) -> String {
+        let safeWord = sanitize(targetWord, maxLength: 120)
+        let safeLearnerLevel = sanitize(learnerLevel, maxLength: 16)
         """
-        The learner has tapped on the word/phrase: "\(targetWord)"
-        Learner level: \(learnerLevel)
+        The learner has tapped on the word/phrase: "\(safeWord)"
+        Learner level: \(safeLearnerLevel)
 
         Before explaining, ask the learner what they think this word means. \
         Generate a brief, encouraging retrieval prompt.
@@ -145,10 +181,12 @@ enum ClaudePrompts {
     }
 
     static func pronunciationDrillPrompt(errorPatterns: [String], learnerLevel: String) -> String {
+        let safeErrorPatterns = sanitizeList(errorPatterns, maxItems: 8, maxLength: 80)
+        let safeLearnerLevel = sanitize(learnerLevel, maxLength: 16)
         """
         The learner has recurring pronunciation errors with these patterns:
-        \(errorPatterns.joined(separator: ", "))
-        Learner level: \(learnerLevel)
+        \(safeErrorPatterns.joined(separator: ", "))
+        Learner level: \(safeLearnerLevel)
 
         Generate a focused drill sequence of 5 words that target these error patterns, \
         progressing from easier to harder.
@@ -181,10 +219,13 @@ enum ClaudePrompts {
     }
 
     static func grammarRetrievalPrompt(pattern: String, context: String, learnerLevel: String) -> String {
+        let safePattern = sanitize(pattern)
+        let safeContext = sanitize(context)
+        let safeLearnerLevel = sanitize(learnerLevel, maxLength: 16)
         """
-        Grammar pattern found in media: "\(pattern)"
-        Context: "\(context)"
-        Learner level: \(learnerLevel)
+        Grammar pattern found in media: "\(safePattern)"
+        Context: "\(safeContext)"
+        Learner level: \(safeLearnerLevel)
 
         Before explaining the grammar, ask the learner to identify the rule. \
         Generate a retrieval-first question.
@@ -203,11 +244,15 @@ enum ClaudePrompts {
         grammarPatterns: [String],
         learnerLevel: String
     ) -> String {
+        let safeTranscript = sanitize(mediaTranscript)
+        let safeVocab = sanitizeList(vocabularyWords, maxItems: 40, maxLength: 64)
+        let safeGrammarPatterns = sanitizeList(grammarPatterns, maxItems: 20, maxLength: 80)
+        let safeLearnerLevel = sanitize(learnerLevel, maxLength: 16)
         """
-        Media segment transcript: "\(mediaTranscript)"
-        Key vocabulary: \(vocabularyWords.joined(separator: ", "))
-        Grammar patterns present: \(grammarPatterns.joined(separator: ", "))
-        Learner level: \(learnerLevel)
+        Media segment transcript: "\(safeTranscript)"
+        Key vocabulary: \(safeVocab.joined(separator: ", "))
+        Grammar patterns present: \(safeGrammarPatterns.joined(separator: ", "))
+        Learner level: \(safeLearnerLevel)
 
         Generate practice items based on this media segment:
         - 2-3 fill-in-the-blank exercises using vocabulary from the segment
@@ -228,9 +273,10 @@ enum ClaudePrompts {
     }
 
     static func practiceGenerationPrompt(mediaContentId: UUID, learnerLevel: String) -> String {
+        let safeLearnerLevel = sanitize(learnerLevel, maxLength: 16)
         """
         Generate practice items for media content ID: \(mediaContentId)
-        Learner level: \(learnerLevel)
+        Learner level: \(safeLearnerLevel)
 
         Provide a JSON array of 3-5 practice items:
         [

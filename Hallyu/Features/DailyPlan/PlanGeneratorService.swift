@@ -106,6 +106,10 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
     static let idealDifficultyLow: Double = 0.3
     /// Ideal difficulty range for media content (upper bound)
     static let idealDifficultyHigh: Double = 0.7
+    /// i+1 comprehensible-input target range
+    static let targetCoverageLow: Double = 0.85
+    static let targetCoverageHigh: Double = 0.95
+    static let targetCoverageCenter: Double = 0.90
 
     // MARK: - Plan Generation
 
@@ -152,6 +156,7 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
             if let mediaActivity = makeMediaActivity(
                 profile: profile,
                 availableMedia: availableMedia,
+                skillMasteries: skillMasteries,
                 todaySessions: todaySessions
             ) {
                 activities.append(mediaActivity)
@@ -230,32 +235,54 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
     private func makeMediaActivity(
         profile: LearnerProfile,
         availableMedia: [MediaContent],
+        skillMasteries: [SkillMastery],
         todaySessions: [StudySession]
     ) -> PlanActivity? {
         // Filter out media already studied today
         let studiedMediaIds = Set(todaySessions.compactMap { $0.mediaContentId })
+        let knownWords = knownVocabulary(from: skillMasteries)
+        let hasKnownWords = !knownWords.isEmpty
 
-        // Find media matching the learner's level
-        let candidates = availableMedia
+        // Find media matching the learner's level and compute vocabulary coverage fit.
+        let candidatesWithCoverage = availableMedia
             .filter { !studiedMediaIds.contains($0.id) }
             .filter { media in
                 media.cefrLevel == profile.cefrLevel ||
                 isWithinDifficultyRange(media.difficultyScore)
             }
-            .sorted { a, b in
-                // Prefer content closest to ideal difficulty range center
-                let centerDifficulty = (Self.idealDifficultyLow + Self.idealDifficultyHigh) / 2.0
-                let distA = abs(a.difficultyScore - centerDifficulty)
-                let distB = abs(b.difficultyScore - centerDifficulty)
-                return distA < distB
+            .map { media -> (media: MediaContent, coverage: Double) in
+                let coverage = hasKnownWords
+                    ? KoreanTextAnalyzer.estimateCoverage(text: media.transcriptKr, knownWords: knownWords)
+                    : Self.targetCoverageCenter
+                return (media, coverage)
             }
 
-        guard let selected = candidates.first else { return nil }
+        let preferredBand = candidatesWithCoverage.filter {
+            $0.coverage >= Self.targetCoverageLow && $0.coverage <= Self.targetCoverageHigh
+        }
+        let rankingPool = preferredBand.isEmpty ? candidatesWithCoverage : preferredBand
+
+        let selectedCandidate = rankingPool.sorted { lhs, rhs in
+            let coverageDistanceL = abs(lhs.coverage - Self.targetCoverageCenter)
+            let coverageDistanceR = abs(rhs.coverage - Self.targetCoverageCenter)
+            if coverageDistanceL != coverageDistanceR {
+                return coverageDistanceL < coverageDistanceR
+            }
+
+            let centerDifficulty = (Self.idealDifficultyLow + Self.idealDifficultyHigh) / 2.0
+            let difficultyDistanceL = abs(lhs.media.difficultyScore - centerDifficulty)
+            let difficultyDistanceR = abs(rhs.media.difficultyScore - centerDifficulty)
+            return difficultyDistanceL < difficultyDistanceR
+        }.first
+
+        guard let selectedCandidate else { return nil }
+        let selected = selectedCandidate.media
+        let coveragePercent = Int((selectedCandidate.coverage * 100).rounded())
 
         return PlanActivity(
             type: .mediaLesson,
             title: selected.title,
-            subtitle: "\(selected.contentType.capitalized) lesson",
+            subtitle: "\(selected.contentType.capitalized) lesson • \(coveragePercent)% known vocab",
             estimatedMinutes: Self.mediaLessonMinutes,
             mediaContentId: selected.id
         )
@@ -269,5 +296,15 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
         let matching = masteries.filter { $0.skillType == skillType }
         guard !matching.isEmpty else { return 0.0 }
         return matching.reduce(0.0) { $0 + $1.accuracy } / Double(matching.count)
+    }
+
+    private func knownVocabulary(from masteries: [SkillMastery]) -> Set<String> {
+        let learned = masteries.filter {
+            ($0.skillType == "vocab_recognition" || $0.skillType == "vocab_production") &&
+            $0.accuracy >= 0.65 &&
+            HangulUtilities.containsKorean($0.skillId)
+        }
+
+        return Set(learned.map(\.skillId))
     }
 }

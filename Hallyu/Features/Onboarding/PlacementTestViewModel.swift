@@ -55,8 +55,11 @@ final class PlacementTestViewModel {
     private(set) var skillBreakdown: [String: Double] = [:]
     var selectedOptionIndex: Int?
 
-    private var items: [PlacementItem] = []
-    private var currentDifficulty: String = "A1"
+    private var askedItems: [PlacementItem] = []
+    private var askedItemIds: Set<UUID> = []
+    private var currentDifficultyIndex: Int = 0
+    private let maxQuestionCount: Int = 12
+    private let levelOrder: [String] = ["A1", "A2", "B1", "B2"]
     private var itemStartTime: Date = Date()
 
     // MARK: - Item Pool
@@ -100,15 +103,15 @@ final class PlacementTestViewModel {
     // MARK: - Computed
 
     var currentItem: PlacementItem? {
-        guard currentItemIndex < items.count else { return nil }
-        return items[currentItemIndex]
+        guard currentItemIndex < askedItems.count else { return nil }
+        return askedItems[currentItemIndex]
     }
 
-    var totalItems: Int { items.count }
+    var totalItems: Int { maxQuestionCount }
 
     var progressFraction: Double {
-        guard !items.isEmpty else { return 0 }
-        return Double(currentItemIndex) / Double(items.count)
+        guard maxQuestionCount > 0 else { return 0 }
+        return Double(results.count) / Double(maxQuestionCount)
     }
 
     var correctCount: Int {
@@ -122,37 +125,7 @@ final class PlacementTestViewModel {
     // MARK: - Init
 
     init() {
-        selectItems()
-    }
-
-    // MARK: - Item Selection (IRT-inspired adaptive)
-
-    private func selectItems() {
-        // Start with A1 items, then adapt based on performance
-        // Select 15-20 items spanning all levels
-        let grouped = Dictionary(grouping: Self.itemPool) { $0.cefrLevel }
-        var selected: [PlacementItem] = []
-
-        // Always start with 3 A1 items
-        if let a1 = grouped["A1"] {
-            selected.append(contentsOf: a1.prefix(3))
-        }
-
-        // Add items from higher levels
-        for level in ["A2", "B1", "B2"] {
-            if let items = grouped[level] {
-                selected.append(contentsOf: items.prefix(3))
-            }
-        }
-
-        // Fill remaining with mixed items
-        let remaining = Self.itemPool.filter { item in
-            !selected.contains(where: { $0.id == item.id })
-        }
-        selected.append(contentsOf: remaining.prefix(max(0, 18 - selected.count)))
-
-        items = selected
-        itemStartTime = Date()
+        seedNextItem()
     }
 
     // MARK: - Actions
@@ -170,13 +143,17 @@ final class PlacementTestViewModel {
             responseTimeMs: responseTime
         ))
 
+        updateDifficulty(after: item, wasCorrect: wasCorrect)
         selectedOptionIndex = nil
         currentItemIndex += 1
-        itemStartTime = Date()
 
-        if currentItemIndex >= items.count {
+        if shouldCompletePlacement {
             calculateResults()
+            return
         }
+
+        seedNextItem()
+        itemStartTime = Date()
     }
 
     func skipItem() {
@@ -189,12 +166,96 @@ final class PlacementTestViewModel {
             responseTimeMs: 0
         ))
 
+        updateDifficulty(after: item, wasCorrect: false)
         selectedOptionIndex = nil
         currentItemIndex += 1
-        itemStartTime = Date()
 
-        if currentItemIndex >= items.count {
+        if shouldCompletePlacement {
             calculateResults()
+            return
+        }
+
+        seedNextItem()
+        itemStartTime = Date()
+    }
+
+    // MARK: - Adaptive Selection
+
+    private var shouldCompletePlacement: Bool {
+        results.count >= maxQuestionCount || askedItemIds.count >= Self.itemPool.count
+    }
+
+    private func seedNextItem() {
+        guard let item = selectNextItem() else {
+            calculateResults()
+            return
+        }
+        askedItems.append(item)
+        askedItemIds.insert(item.id)
+    }
+
+    private func selectNextItem() -> PlacementItem? {
+        let unasked = Self.itemPool.filter { !askedItemIds.contains($0.id) }
+        guard !unasked.isEmpty else { return nil }
+
+        for levelIndex in preferredLevelIndices() {
+            let level = levelOrder[levelIndex]
+            let candidates = unasked.filter { $0.cefrLevel == level }
+            if let chosen = bestCandidate(from: candidates) {
+                return chosen
+            }
+        }
+
+        return bestCandidate(from: unasked)
+    }
+
+    private func preferredLevelIndices() -> [Int] {
+        var order: [Int] = []
+        let maxIndex = levelOrder.count - 1
+        for offset in 0...maxIndex {
+            let lower = currentDifficultyIndex - offset
+            let upper = currentDifficultyIndex + offset
+            if lower >= 0 && !order.contains(lower) {
+                order.append(lower)
+            }
+            if upper <= maxIndex && !order.contains(upper) {
+                order.append(upper)
+            }
+        }
+        return order
+    }
+
+    private func bestCandidate(from candidates: [PlacementItem]) -> PlacementItem? {
+        guard !candidates.isEmpty else { return nil }
+
+        let typeCounts = Dictionary(grouping: results) { $0.item.type }
+            .mapValues(\.count)
+
+        return candidates.sorted { lhs, rhs in
+            let lhsTypeCount = typeCounts[lhs.type] ?? 0
+            let rhsTypeCount = typeCounts[rhs.type] ?? 0
+            if lhsTypeCount != rhsTypeCount {
+                return lhsTypeCount < rhsTypeCount
+            }
+
+            let lhsLevel = levelOrder.firstIndex(of: lhs.cefrLevel) ?? 0
+            let rhsLevel = levelOrder.firstIndex(of: rhs.cefrLevel) ?? 0
+            let lhsDistance = abs(lhsLevel - currentDifficultyIndex)
+            let rhsDistance = abs(rhsLevel - currentDifficultyIndex)
+            if lhsDistance != rhsDistance {
+                return lhsDistance < rhsDistance
+            }
+
+            return lhs.prompt < rhs.prompt
+        }.first
+    }
+
+    private func updateDifficulty(after item: PlacementItem, wasCorrect: Bool) {
+        let itemLevelIndex = levelOrder.firstIndex(of: item.cefrLevel) ?? currentDifficultyIndex
+        if wasCorrect {
+            currentDifficultyIndex = min(levelOrder.count - 1, max(currentDifficultyIndex, itemLevelIndex) + 1)
+        } else {
+            currentDifficultyIndex = max(0, min(currentDifficultyIndex, itemLevelIndex) - 1)
         }
     }
 
@@ -206,6 +267,7 @@ final class PlacementTestViewModel {
         // Calculate accuracy per CEFR level
         let groupedResults = Dictionary(grouping: results) { $0.item.cefrLevel }
         var levelAccuracy: [String: Double] = [:]
+        skillBreakdown = [:]
 
         for (level, levelResults) in groupedResults {
             let correct = levelResults.filter { $0.wasCorrect }.count
@@ -233,6 +295,19 @@ final class PlacementTestViewModel {
                 estimatedLevel = level
                 break
             }
+        }
+
+        // Fallback: when adaptive path has sparse level sampling, use achieved
+        // difficulty cursor and overall performance to avoid under-placement.
+        if estimatedLevel == "pre-A1", !results.isEmpty {
+            let overallAccuracy = Double(correctCount) / Double(results.count)
+            let fallbackIndex: Int
+            if overallAccuracy < 0.35 {
+                fallbackIndex = 0
+            } else {
+                fallbackIndex = min(currentDifficultyIndex, levelOrder.count - 1)
+            }
+            estimatedLevel = overallAccuracy < 0.35 ? "pre-A1" : levelOrder[fallbackIndex]
         }
     }
 }

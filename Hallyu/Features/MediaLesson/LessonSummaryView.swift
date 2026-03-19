@@ -1,8 +1,13 @@
 import SwiftUI
+import SwiftData
 
 /// Step 5.1 (sub-step 7): Session summary showing words learned, accuracy, time spent.
 struct LessonSummaryView: View {
+    @Environment(ServiceContainer.self) private var services
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: MediaLessonViewModel
+    @State private var showReviewSession = false
 
     var body: some View {
         ScrollView {
@@ -13,6 +18,13 @@ struct LessonSummaryView: View {
                 actionButtons
             }
             .padding()
+        }
+        .onAppear {
+            viewModel.saveStudySessionIfNeeded(modelContext: modelContext)
+            viewModel.buildSummary()
+        }
+        .navigationDestination(isPresented: $showReviewSession) {
+            ReviewSessionView(items: newReviewItems, services: services)
         }
     }
 
@@ -158,17 +170,17 @@ struct LessonSummaryView: View {
     private var actionButtons: some View {
         VStack(spacing: 12) {
             Button {
-                // Navigate to review session for newly added words
+                showReviewSession = true
             } label: {
                 Label("Review New Words", systemImage: "arrow.triangle.2.circlepath")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(viewModel.selectedWordIds.isEmpty)
+            .disabled(newReviewItems.isEmpty)
 
             Button {
-                // Return to media library
+                dismiss()
             } label: {
                 Text("Back to Library")
                     .frame(maxWidth: .infinity)
@@ -193,5 +205,16 @@ struct LessonSummaryView: View {
         if score >= 0.8 { return .green }
         if score >= 0.6 { return .orange }
         return .red
+    }
+
+    private var newReviewItems: [ReviewItem] {
+        guard !viewModel.persistedWordIds.isEmpty else { return [] }
+        let descriptor = FetchDescriptor<ReviewItem>()
+        let items = (try? modelContext.fetch(descriptor)) ?? []
+        return items.filter {
+            $0.userId == viewModel.userId &&
+            $0.itemType == "vocabulary" &&
+            viewModel.persistedWordIds.contains($0.itemId)
+        }
     }
 }

@@ -22,6 +22,7 @@ final class HangulLessonViewModel {
 
     // Pronunciation state
     var pronunciationFeedback: PronunciationFeedback?
+    var pronunciationScore: PronunciationScore?
     var isRecording: Bool = false
     var recognitionResult: SpeechRecognitionResult?
     var traceScore: Double?
@@ -118,7 +119,7 @@ final class HangulLessonViewModel {
             // Skip Claude coaching if pronunciation was good
             let nextStep = allSteps[nextIndex]
             if nextStep == .claudeCoaching {
-                let shouldSkipCoaching = recognitionResult.map { $0.confidence >= 0.8 } ?? true
+                let shouldSkipCoaching = pronunciationScore.map { $0.overall >= 0.78 } ?? true
                 if shouldSkipCoaching {
                     finishCurrentJamo(jamo: jamo)
                     return
@@ -153,14 +154,20 @@ final class HangulLessonViewModel {
         recognitionResult = result
 
         guard let jamo = currentJamo else { return }
+        let score = PronunciationScorer.evaluate(
+            transcript: result.transcript,
+            target: String(jamo.character),
+            asrConfidence: result.confidence
+        )
+        pronunciationScore = score
 
         var jamoScore = scores[jamo.id] ?? JamoScore(jamoId: jamo.id, traceAccuracy: 0, pronunciationAccuracy: 0, attempts: 0)
-        jamoScore.pronunciationAccuracy = result.confidence
+        jamoScore.pronunciationAccuracy = score.overall
         jamoScore.attempts += 1
         scores[jamo.id] = jamoScore
 
-        // If confidence is low, get Claude coaching
-        if result.confidence < 0.8 {
+        // If pronunciation remains weak, get Claude coaching.
+        if score.overall < 0.78 || score.jamoAccuracy < 0.72 {
             let feedback = try await claudeService.getPronunciationFeedback(
                 transcript: result.transcript,
                 target: String(jamo.character)
@@ -183,6 +190,7 @@ final class HangulLessonViewModel {
 
     private func finishCurrentJamo(jamo: JamoEntry) {
         pronunciationFeedback = nil
+        pronunciationScore = nil
         recognitionResult = nil
         traceScore = nil
 
@@ -205,13 +213,11 @@ final class HangulLessonViewModel {
 
     /// Create ReviewItems for completed jamo. Returns items ready for SRS insertion.
     func createReviewItems(userId: UUID) -> [ReviewItem] {
-        jamoEntries.map { jamo in
-            ReviewItem(
-                userId: userId,
-                itemType: "hangul",
-                itemId: UUID(),
-                nextReviewAt: Date().addingTimeInterval(86400) // first review in 24h
-            )
-        }
+        let completedIds = jamoEntries.map(\.id)
+        return HangulReviewIntegration.createReviewItems(
+            userId: userId,
+            completedJamoIds: completedIds,
+            mode: .recognition
+        )
     }
 }

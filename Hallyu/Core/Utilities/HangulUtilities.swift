@@ -28,6 +28,23 @@ enum HangulUtilities {
         "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"
     ]
 
+    // Approximate Revised Romanization mapping for UI hints.
+    static let leadRomanization: [String] = [
+        "g", "kk", "n", "d", "tt", "r", "m", "b", "pp",
+        "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h"
+    ]
+
+    static let medialRomanization: [String] = [
+        "a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae",
+        "oe", "yo", "u", "wo", "we", "wi", "yu", "eu", "ui", "i"
+    ]
+
+    static let finalRomanization: [String] = [
+        "", "k", "k", "k", "n", "n", "n", "t", "l", "lk", "lm",
+        "lp", "lt", "lt", "lp", "lh", "m", "p", "p", "t", "t",
+        "ng", "t", "t", "k", "t", "p", "h"
+    ]
+
     /// Compose a Hangul syllable from initial, medial, and optional final consonant indices.
     /// Returns nil if indices are out of range.
     static func composeSyllable(leadIndex: Int, vowelIndex: Int, tailIndex: Int = 0) -> Character? {
@@ -84,5 +101,38 @@ enum HangulUtilities {
     /// Count the number of Korean characters in a string
     static func koreanCharacterCount(_ text: String) -> Int {
         text.filter { isHangulSyllable($0) || isHangulJamo($0) }.count
+    }
+
+    /// Romanize Korean text with a lightweight, readability-focused mapping.
+    static func romanize(_ text: String) -> String {
+        var output = ""
+        output.reserveCapacity(text.count * 2)
+
+        for character in text {
+            if let parts = decomposeSyllable(character) {
+                output += leadRomanization[parts.leadIndex]
+                output += medialRomanization[parts.vowelIndex]
+                output += finalRomanization[parts.tailIndex]
+            } else if isHangulJamo(character) {
+                output += romanizationForJamo(character)
+            } else {
+                output.append(character)
+            }
+        }
+
+        return output
+    }
+
+    private static func romanizationForJamo(_ jamo: Character) -> String {
+        if let leadIndex = leadingConsonants.firstIndex(of: jamo) {
+            return leadRomanization[leadIndex]
+        }
+        if let medialIndex = medialVowels.firstIndex(of: jamo) {
+            return medialRomanization[medialIndex]
+        }
+        if let finalIndex = finalConsonants.firstIndex(where: { $0 == jamo }) {
+            return finalRomanization[finalIndex]
+        }
+        return String(jamo)
     }
 }

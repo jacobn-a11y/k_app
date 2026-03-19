@@ -22,6 +22,22 @@ enum MediaContentSeeder {
         dramaClips + webtoonExcerpts + newsArticles + shortVideoClips + musicClips
     }
 
+    private static let demoVideoURLs: [String] = [
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+    ]
+
+    private static let demoAudioURLs: [String] = [
+        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
+        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
+    ]
+
     // MARK: - K-Drama Clips (50)
 
     static let dramaClips: [MediaContent] = {
@@ -119,7 +135,7 @@ enum MediaContentSeeder {
                     durationSeconds: drama.5 + varIndex * 30,
                     transcriptKr: drama.6,
                     transcriptSegments: drama.8,
-                    mediaUrl: "placeholder://drama/\(clipIndex)",
+                    mediaUrl: demoVideoURLs[clipIndex % demoVideoURLs.count],
                     culturalNotes: drama.7,
                     tags: drama.9
                 ))
@@ -157,7 +173,7 @@ enum MediaContentSeeder {
                     cefrLevel: webtoon.2,
                     durationSeconds: 0,
                     transcriptKr: webtoon.4,
-                    mediaUrl: "placeholder://webtoon/\(excerptIndex)",
+                    mediaUrl: "",
                     tags: webtoon.5
                 ))
             }
@@ -266,6 +282,7 @@ enum MediaContentSeeder {
                 transcriptSegments: [
                     MediaContent.TranscriptSegment(startMs: 0, endMs: 5000, textKr: transcripts[i], textEn: "")
                 ],
+                mediaUrl: demoVideoURLs[i % demoVideoURLs.count],
                 tags: ["vlog", "culture"]
             )
         }
@@ -307,6 +324,7 @@ enum MediaContentSeeder {
                 cefrLevel: levels[i],
                 durationSeconds: 180 + i * 20,
                 transcriptKr: lyrics[i],
+                mediaUrl: demoAudioURLs[i % demoAudioURLs.count],
                 tags: ["music", "kpop"]
             )
         }

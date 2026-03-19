@@ -5,8 +5,12 @@ actor ClaudeService: ClaudeServiceProtocol {
     private let apiClient: APIClient
     private let cache: ResponseCache
     private let interactionTracker: InteractionTracker
+    private let tierProvider: @Sendable () -> AppState.SubscriptionTier
 
-    init(apiKey: String = AppEnvironment.current.claudeAPIKey) {
+    init(
+        apiKey: String = AppEnvironment.current.claudeAPIKey,
+        tierProvider: @escaping @Sendable () -> AppState.SubscriptionTier = { .free }
+    ) {
         self.apiClient = APIClient(
             baseURL: AppEnvironment.current.claudeAPIBaseURL,
             defaultHeaders: [
@@ -17,13 +21,14 @@ actor ClaudeService: ClaudeServiceProtocol {
         )
         self.cache = ResponseCache()
         self.interactionTracker = InteractionTracker()
+        self.tierProvider = tierProvider
     }
 
     // MARK: - Tier Enforcement
 
-    func checkTierAllowed(tier: AppState.SubscriptionTier) throws {
+    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws {
         let limits = ClaudeTierLimits.limits(for: tier)
-        let todayCount = interactionTracker.todayCount
+        let todayCount = await interactionTracker.todayCount
         guard limits.isAllowed(currentCount: todayCount) else {
             throw ClaudeServiceError.tierLimitReached
         }
@@ -150,6 +155,8 @@ actor ClaudeService: ClaudeServiceProtocol {
     // MARK: - Private
 
     private func sendMessage<T: Decodable>(systemPrompt: String, userMessage: String, role: ClaudeRole) async throws -> T {
+        let tier = tierProvider()
+        try await checkTierAllowed(tier: tier)
         try enforceRateLimit()
         lastRequestTime = Date()
 

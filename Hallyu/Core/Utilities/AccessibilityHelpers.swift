@@ -81,12 +81,14 @@ extension View {
 
 struct HighContrastModifier: ViewModifier {
     @Environment(\.colorSchemeContrast) var contrast
+    @AppStorage("highContrastMode") private var highContrastMode: Bool = false
 
     let normalColor: Color
     let highContrastColor: Color
 
     func body(content: Content) -> some View {
-        content.foregroundStyle(contrast == .increased ? highContrastColor : normalColor)
+        let useHighContrast = contrast == .increased || highContrastMode
+        return content.foregroundStyle(useHighContrast ? highContrastColor : normalColor)
     }
 }
 
@@ -127,7 +129,15 @@ enum HapticType {
 }
 
 struct HapticManager {
+    private static var isHapticFeedbackEnabled: Bool {
+        if UserDefaults.standard.object(forKey: "hapticFeedbackEnabled") == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "hapticFeedbackEnabled")
+    }
+
     static func play(_ type: HapticType) {
+        guard isHapticFeedbackEnabled else { return }
         switch type {
         case .success:
             let generator = UINotificationFeedbackGenerator()
@@ -154,6 +164,7 @@ struct HapticManager {
     }
 
     static func prepareHaptic(_ type: HapticType) {
+        guard isHapticFeedbackEnabled else { return }
         switch type {
         case .success, .error, .warning:
             UINotificationFeedbackGenerator().prepare()

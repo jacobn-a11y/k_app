@@ -4,21 +4,14 @@ struct SupabaseConfig {
     let projectURL: URL
     let anonKey: String
     let serviceRoleKey: String?
+    let isConfigured: Bool
 
     static var debug: SupabaseConfig {
-        SupabaseConfig(
-            projectURL: URL(string: "https://placeholder.supabase.co")!,
-            anonKey: "placeholder-anon-key",
-            serviceRoleKey: nil
-        )
+        fromRuntimeConfiguration()
     }
 
     static var release: SupabaseConfig {
-        SupabaseConfig(
-            projectURL: URL(string: "https://placeholder.supabase.co")!,
-            anonKey: "placeholder-anon-key",
-            serviceRoleKey: nil
-        )
+        fromRuntimeConfiguration()
     }
 
     static var current: SupabaseConfig {
@@ -27,6 +20,44 @@ struct SupabaseConfig {
         #else
         return .release
         #endif
+    }
+
+    private static func fromRuntimeConfiguration() -> SupabaseConfig {
+        let urlString = value(for: "SUPABASE_PROJECT_URL")
+        let anonKey = value(for: "SUPABASE_ANON_KEY")
+        let serviceRoleKey = value(for: "SUPABASE_SERVICE_ROLE_KEY")
+
+        if let urlString,
+           let projectURL = URL(string: urlString),
+           let anonKey,
+           !anonKey.isEmpty {
+            return SupabaseConfig(
+                projectURL: projectURL,
+                anonKey: anonKey,
+                serviceRoleKey: serviceRoleKey,
+                isConfigured: true
+            )
+        }
+
+        return SupabaseConfig(
+            projectURL: URL(string: "https://invalid.supabase.local")!,
+            anonKey: "",
+            serviceRoleKey: nil,
+            isConfigured: false
+        )
+    }
+
+    private static func value(for key: String) -> String? {
+        if let envValue = ProcessInfo.processInfo.environment[key], !envValue.isEmpty {
+            return envValue
+        }
+
+        if let plistValue = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+           !plistValue.isEmpty {
+            return plistValue
+        }
+
+        return nil
     }
 }
 
@@ -47,6 +78,12 @@ actor SupabaseClient {
         )
     }
 
+    private func ensureConfigured() throws {
+        guard config.isConfigured else {
+            throw APIError.invalidURL
+        }
+    }
+
     func setAccessToken(_ token: String?) {
         self.accessToken = token
     }
@@ -58,6 +95,7 @@ actor SupabaseClient {
         query: [URLQueryItem] = [],
         single: Bool = false
     ) async throws -> T {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -80,6 +118,7 @@ actor SupabaseClient {
         into table: String,
         values: T
     ) async throws -> T {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -100,6 +139,7 @@ actor SupabaseClient {
         query: [URLQueryItem],
         values: T
     ) async throws -> T {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -120,6 +160,7 @@ actor SupabaseClient {
         from table: String,
         query: [URLQueryItem]
     ) async throws {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -138,6 +179,7 @@ actor SupabaseClient {
     // MARK: - Auth
 
     func signUp(email: String, password: String) async throws -> AuthResponse {
+        try ensureConfigured()
         let authClient = APIClient(
             baseURL: config.projectURL.appendingPathComponent("auth/v1"),
             defaultHeaders: [
@@ -152,6 +194,7 @@ actor SupabaseClient {
     }
 
     func signIn(email: String, password: String) async throws -> AuthResponse {
+        try ensureConfigured()
         let authClient = APIClient(
             baseURL: config.projectURL.appendingPathComponent("auth/v1"),
             defaultHeaders: [

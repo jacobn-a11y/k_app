@@ -15,10 +15,26 @@ enum HangulReviewIntegration {
         mode: ReviewMode = .recognition
     ) -> [ReviewItem] {
         completedJamoIds.map { jamoId in
+            let jamo = HangulData.jamo(for: jamoId)
+            let prompt: String
+            let answer: String
+
+            switch mode {
+            case .recognition:
+                prompt = jamo.map { String($0.character) } ?? jamoId
+                answer = jamo?.romanization ?? jamoId
+            case .production:
+                prompt = jamo?.romanization ?? jamoId
+                answer = jamo.map { String($0.character) } ?? jamoId
+            }
+
             ReviewItem(
                 userId: userId,
                 itemType: "hangul_\(mode.rawValue)",
                 itemId: deterministicUUID(for: "\(userId)_\(jamoId)_\(mode.rawValue)"),
+                promptText: prompt,
+                answerText: answer,
+                sourceContext: "Hangul \(mode.rawValue)",
                 halfLifeDays: 1.0,
                 nextReviewAt: Date().addingTimeInterval(86400) // first review in 24h
             )
@@ -35,6 +51,9 @@ enum HangulReviewIntegration {
                 userId: userId,
                 itemType: "hangul_syllable",
                 itemId: deterministicUUID(for: "\(userId)_\(syllable)"),
+                promptText: String(syllable),
+                answerText: String(syllable),
+                sourceContext: "Hangul syllable builder",
                 halfLifeDays: 1.0,
                 nextReviewAt: Date().addingTimeInterval(86400)
             )

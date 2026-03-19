@@ -106,6 +106,17 @@ struct PronunciationTutorView: View {
                 }
             }
 
+            if let score = viewModel.pronunciationScore {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pronunciation match: \(Int(score.overall * 100))%")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text("Jamo \(Int(score.jamoAccuracy * 100))% • Prosody \(Int(score.prosodyAccuracy * 100))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             // Feedback
             Text(feedback.feedback)
                 .font(.body)

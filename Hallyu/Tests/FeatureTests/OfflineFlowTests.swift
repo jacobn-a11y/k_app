@@ -1,5 +1,5 @@
 import XCTest
-@testable import Hallyu
+@testable import HallyuCore
 
 final class OfflineFlowTests: XCTestCase {
 

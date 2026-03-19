@@ -1,12 +1,21 @@
 import SwiftUI
-import SwiftData
 
 struct OnboardingView: View {
     @Environment(ServiceContainer.self) private var services
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var viewModel = OnboardingViewModel()
+    @State private var firstLessonPhase: FirstLessonPhase = .idle
+    @State private var firstLessonTranscript: String = ""
+    @State private var firstLessonScore: PronunciationScore?
+    @State private var firstLessonErrorMessage: String?
     let onComplete: (OnboardingResult) -> Void
+
+    private enum FirstLessonPhase {
+        case idle
+        case recording
+        case processing
+        case completed
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,8 +56,7 @@ struct OnboardingView: View {
             set: { if !$0 { viewModel.dismissPlacementTest() } }
         )) {
             PlacementTestView { cefrLevel in
-                let result = viewModel.completePlacementAndFinish(cefrLevel: cefrLevel)
-                onComplete(result)
+                viewModel.applyPlacementResult(cefrLevel: cefrLevel)
             }
             .environment(services)
         }
@@ -211,26 +219,51 @@ struct OnboardingView: View {
                 .foregroundStyle(.secondary)
 
             Button {
-                viewModel.markFirstJamoSpoken()
+                toggleFirstLessonRecording()
             } label: {
                 HStack {
-                    Image(systemName: viewModel.hasSpokenFirstJamo ? "checkmark.circle.fill" : "mic.fill")
-                    Text(viewModel.hasSpokenFirstJamo ? "You just spoke Korean!" : "Tap to pronounce")
+                    Image(systemName: firstLessonButtonIcon)
+                    Text(firstLessonButtonText)
                 }
                 .font(.headline)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(viewModel.hasSpokenFirstJamo ? Color.green : Color.blue)
+                .background(firstLessonButtonColor)
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
             }
+            .disabled(firstLessonPhase == .processing)
             .padding(.horizontal)
+
+            if firstLessonPhase == .processing {
+                ProgressView("Checking pronunciation...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !firstLessonTranscript.isEmpty {
+                VStack(spacing: 4) {
+                    Text("We heard: \(firstLessonTranscript)")
+                        .font(.subheadline)
+                    if let score = firstLessonScore {
+                        Text("Pronunciation match: \(Int(score.overall * 100))%")
+                            .font(.caption)
+                            .foregroundStyle(score.overall >= 0.72 ? .green : .orange)
+                    }
+                }
+            }
 
             if viewModel.hasSpokenFirstJamo {
                 Text("Amazing! Let's keep going.")
                     .font(.subheadline)
                     .foregroundStyle(.green)
                     .transition(.opacity)
+            } else if let firstLessonErrorMessage {
+                Text(firstLessonErrorMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
             }
 
             Spacer()
@@ -283,6 +316,108 @@ struct OnboardingView: View {
             viewModel.selectedMediaInterests.remove(interest)
         } else {
             viewModel.selectedMediaInterests.insert(interest)
+        }
+    }
+
+    private func toggleFirstLessonRecording() {
+        switch firstLessonPhase {
+        case .idle:
+            startFirstLessonRecording()
+        case .recording:
+            stopAndValidateFirstLessonRecording()
+        case .processing:
+            break
+        case .completed:
+            break
+        }
+    }
+
+    private var firstLessonButtonText: String {
+        switch firstLessonPhase {
+        case .idle: return "Tap to pronounce"
+        case .recording: return "Stop recording"
+        case .processing: return "Analyzing..."
+        case .completed: return "You just spoke Korean!"
+        }
+    }
+
+    private var firstLessonButtonIcon: String {
+        switch firstLessonPhase {
+        case .idle: return "mic.fill"
+        case .recording: return "stop.circle.fill"
+        case .processing: return "waveform"
+        case .completed: return "checkmark.circle.fill"
+        }
+    }
+
+    private var firstLessonButtonColor: Color {
+        switch firstLessonPhase {
+        case .idle: return .blue
+        case .recording: return .red
+        case .processing: return .blue
+        case .completed: return .green
+        }
+    }
+
+    private func startFirstLessonRecording() {
+        firstLessonErrorMessage = nil
+        firstLessonTranscript = ""
+        firstLessonScore = nil
+
+        Task {
+            do {
+                _ = try await services.audio.startRecording()
+                await MainActor.run {
+                    firstLessonPhase = .recording
+                }
+            } catch {
+                await MainActor.run {
+                    firstLessonPhase = .idle
+                    firstLessonErrorMessage = "Couldn't start recording. Please check microphone permissions."
+                }
+            }
+        }
+    }
+
+    private func stopAndValidateFirstLessonRecording() {
+        Task {
+            await MainActor.run {
+                firstLessonPhase = .processing
+                firstLessonErrorMessage = nil
+            }
+
+            do {
+                let audioURL = try await services.audio.stopRecording()
+                let isAuthorized = await services.speechRecognition.requestAuthorization()
+                guard isAuthorized else {
+                    throw SpeechRecognitionError.notAuthorized
+                }
+
+                let result = try await services.speechRecognition.recognizeSpeech(from: audioURL)
+                let score = PronunciationScorer.evaluate(
+                    transcript: result.transcript,
+                    target: "아",
+                    asrConfidence: result.confidence
+                )
+                let passed = score.overall >= 0.72 && score.jamoAccuracy >= 0.70
+
+                await MainActor.run {
+                    firstLessonTranscript = result.transcript
+                    firstLessonScore = score
+                    if passed {
+                        viewModel.markFirstJamoSpoken()
+                        firstLessonPhase = .completed
+                    } else {
+                        firstLessonPhase = .idle
+                        firstLessonErrorMessage = "Close. Try one more time and say \"아\" clearly."
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    firstLessonPhase = .idle
+                    firstLessonErrorMessage = "We couldn't verify that attempt. Please try again."
+                }
+            }
         }
     }
 }

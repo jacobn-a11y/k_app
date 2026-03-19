@@ -1,6 +1,8 @@
 import SwiftUI
+import SwiftData
 
 struct ComprehensionCoachView: View {
+    @Environment(\.modelContext) private var modelContext
     @Bindable var viewModel: ComprehensionCoachViewModel
     let transcript: String
     let learnerLevel: String
@@ -129,7 +131,10 @@ struct ComprehensionCoachView: View {
 
             if !viewModel.addedToReview {
                 Button {
-                    Task { await viewModel.addToReview(userId: userId) }
+                    Task {
+                        await viewModel.addToReview(userId: userId)
+                        persistReviewItem()
+                    }
                 } label: {
                     Label("Add to Review", systemImage: "plus.circle")
                 }
@@ -149,5 +154,53 @@ struct ComprehensionCoachView: View {
             Text(value)
                 .font(.body)
         }
+    }
+
+    private func persistReviewItem() {
+        guard let response = viewModel.response else { return }
+        let wordId = deterministicUUID(for: "claude_word_\(viewModel.targetWord)")
+
+        let existingItems = (try? modelContext.fetch(FetchDescriptor<ReviewItem>())) ?? []
+        let exists = existingItems.contains {
+            $0.userId == userId &&
+            $0.itemType == "vocabulary" &&
+            $0.itemId == wordId
+        }
+        if exists {
+            return
+        }
+
+        let reviewItem = ReviewItem(
+            userId: userId,
+            itemType: "vocabulary",
+            itemId: wordId,
+            promptText: viewModel.targetWord,
+            answerText: response.contextualMeaning,
+            sourceContext: viewModel.mediaTitle
+        )
+        modelContext.insert(reviewItem)
+        try? modelContext.save()
+    }
+
+    private func deterministicUUID(for value: String) -> UUID {
+        var hash: UInt64 = 1469598103934665603
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        let bytes = withUnsafeBytes(of: hash.bigEndian) { Array($0) }
+        var uuidBytes = [UInt8](repeating: 0, count: 16)
+        for i in 0..<8 {
+            uuidBytes[i] = bytes[i]
+            uuidBytes[i + 8] = bytes[i] ^ 0x5A
+        }
+        uuidBytes[6] = (uuidBytes[6] & 0x0F) | 0x40
+        uuidBytes[8] = (uuidBytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (
+            uuidBytes[0], uuidBytes[1], uuidBytes[2], uuidBytes[3],
+            uuidBytes[4], uuidBytes[5], uuidBytes[6], uuidBytes[7],
+            uuidBytes[8], uuidBytes[9], uuidBytes[10], uuidBytes[11],
+            uuidBytes[12], uuidBytes[13], uuidBytes[14], uuidBytes[15]
+        ))
     }
 }

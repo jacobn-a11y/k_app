@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(StoreKit)
+import StoreKit
+#endif
 
 // MARK: - Subscription Errors
 
@@ -68,16 +71,16 @@ enum SubscriptionFeature: String, CaseIterable {
 // MARK: - Subscription Service Implementation
 
 final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked Sendable {
-    // In a real app, this would use StoreKit 2's Product, Transaction, etc.
-    // This implementation provides the business logic layer that wraps StoreKit.
-
     private(set) var currentTier: AppState.SubscriptionTier = .free
     private var cachedProducts: [SubscriptionProduct] = []
     private var activeSubscription: SubscriptionStatus?
     private let tierKey = "com.hallyu.subscriptionTier"
 
+    #if canImport(StoreKit)
+    private var storeProducts: [Product] = []
+    #endif
+
     init() {
-        // Load persisted tier
         if let data = KeychainHelper.load(forKey: tierKey),
            let saved = String(data: data, encoding: .utf8),
            let tier = AppState.SubscriptionTier(rawValue: saved) {
@@ -88,41 +91,34 @@ final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked
     // MARK: - Load Products
 
     func loadProducts() async throws -> [SubscriptionProduct] {
-        // In production, this calls StoreKit 2:
-        // let products = try await Product.products(for: SubscriptionProductId.allCases.map(\.rawValue))
-        // For now, return the product catalog:
-        let products = [
-            SubscriptionProduct(
-                id: SubscriptionProductId.coreMonthly.rawValue,
-                name: "Core Monthly",
-                description: "Claude AI coach, full media library, progress tracking",
-                priceFormatted: "$12.99/month",
-                tier: "core"
-            ),
-            SubscriptionProduct(
-                id: SubscriptionProductId.coreAnnual.rawValue,
-                name: "Core Annual",
-                description: "Claude AI coach, full media library, progress tracking",
-                priceFormatted: "$99.99/year",
-                tier: "core"
-            ),
-            SubscriptionProduct(
-                id: SubscriptionProductId.proMonthly.rawValue,
-                name: "Pro Monthly",
-                description: "Everything in Core + unlimited AI coaching",
-                priceFormatted: "$19.99/month",
-                tier: "pro"
-            ),
-            SubscriptionProduct(
-                id: SubscriptionProductId.proAnnual.rawValue,
-                name: "Pro Annual",
-                description: "Everything in Core + unlimited AI coaching",
-                priceFormatted: "$149.99/year",
-                tier: "pro"
-            ),
-        ]
+        #if canImport(StoreKit)
+        guard !SubscriptionProductId.allCases.isEmpty else {
+            throw SubscriptionError.notAvailable
+        }
+
+        let ids = SubscriptionProductId.allCases.map(\.rawValue)
+        let products = try await Product.products(for: ids)
+        guard !products.isEmpty else {
+            throw SubscriptionError.notAvailable
+        }
+
+        storeProducts = products
         cachedProducts = products
-        return products
+            .sorted { $0.displayName < $1.displayName }
+            .map {
+                SubscriptionProduct(
+                    id: $0.id,
+                    name: $0.displayName,
+                    description: $0.description,
+                    priceFormatted: $0.displayPrice,
+                    tier: SubscriptionProductId(rawValue: $0.id)?.tier.rawValue ?? "free"
+                )
+            }
+
+        return cachedProducts
+        #else
+        throw SubscriptionError.notAvailable
+        #endif
     }
 
     // MARK: - Purchase
@@ -132,40 +128,73 @@ final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked
             throw SubscriptionError.productNotFound
         }
 
-        // In production:
-        // guard let product = try await Product.products(for: [productId]).first else { throw ... }
-        // let result = try await product.purchase()
-        // switch result { case .success(let verification): ... }
+        #if canImport(StoreKit)
+        let product = try await resolveProduct(withId: productId)
+        let result = try await product.purchase()
 
-        let tier = productEnum.tier
-        currentTier = tier
-        persistTier(tier)
+        switch result {
+        case .success(let verification):
+            let transaction = try checkVerified(verification)
+            await transaction.finish()
 
-        let status = SubscriptionStatus(
-            tier: tier.rawValue,
-            isActive: true,
-            expiresAt: productEnum.isAnnual
-                ? Date().addingTimeInterval(365 * 24 * 3600)
-                : Date().addingTimeInterval(30 * 24 * 3600)
-        )
-        activeSubscription = status
-        return status
+            let tier = productEnum.tier
+            currentTier = tier
+            persistTier(tier)
+
+            let status = SubscriptionStatus(
+                tier: tier.rawValue,
+                isActive: true,
+                expiresAt: transaction.expirationDate
+            )
+            activeSubscription = status
+            return status
+
+        case .pending:
+            throw SubscriptionError.purchaseFailed("Transaction pending approval.")
+
+        case .userCancelled:
+            throw SubscriptionError.purchaseCancelled
+
+        @unknown default:
+            throw SubscriptionError.purchaseFailed("Unknown StoreKit purchase state.")
+        }
+        #else
+        throw SubscriptionError.notAvailable
+        #endif
     }
 
     // MARK: - Restore
 
     func restorePurchases() async throws -> SubscriptionStatus {
-        // In production:
-        // for await result in Transaction.currentEntitlements { ... }
+        #if canImport(StoreKit)
+        var highestTier: AppState.SubscriptionTier = .free
+        var latestExpiration: Date?
 
-        // If no active subscription found, reset to free
-        if activeSubscription == nil {
-            currentTier = .free
-            persistTier(.free)
-            return SubscriptionStatus(tier: "free", isActive: true, expiresAt: nil)
+        for await entitlement in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = entitlement else { continue }
+            let tier = SubscriptionProductId(rawValue: transaction.productID)?.tier ?? .free
+            if tierRank(tier) > tierRank(highestTier) {
+                highestTier = tier
+            }
+            if let expiration = transaction.expirationDate,
+               latestExpiration == nil || expiration > latestExpiration! {
+                latestExpiration = expiration
+            }
         }
 
-        return activeSubscription!
+        currentTier = highestTier
+        persistTier(highestTier)
+
+        let status = SubscriptionStatus(
+            tier: highestTier.rawValue,
+            isActive: true,
+            expiresAt: latestExpiration
+        )
+        activeSubscription = status
+        return status
+        #else
+        throw SubscriptionError.notAvailable
+        #endif
     }
 
     // MARK: - Entitlement
@@ -178,10 +207,15 @@ final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked
     // MARK: - Helpers
 
     private func tierMeetsMinimum(current: AppState.SubscriptionTier, required: AppState.SubscriptionTier) -> Bool {
-        let order: [AppState.SubscriptionTier] = [.free, .core, .pro]
-        guard let currentIndex = order.firstIndex(of: current),
-              let requiredIndex = order.firstIndex(of: required) else { return false }
-        return currentIndex >= requiredIndex
+        tierRank(current) >= tierRank(required)
+    }
+
+    private func tierRank(_ tier: AppState.SubscriptionTier) -> Int {
+        switch tier {
+        case .free: return 0
+        case .core: return 1
+        case .pro: return 2
+        }
     }
 
     private func persistTier(_ tier: AppState.SubscriptionTier) {
@@ -189,4 +223,28 @@ final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked
             KeychainHelper.save(data, forKey: tierKey)
         }
     }
+
+    #if canImport(StoreKit)
+    private func resolveProduct(withId id: String) async throws -> Product {
+        if let cached = storeProducts.first(where: { $0.id == id }) {
+            return cached
+        }
+
+        let products = try await Product.products(for: [id])
+        guard let product = products.first else {
+            throw SubscriptionError.productNotFound
+        }
+        storeProducts = storeProducts + [product]
+        return product
+    }
+
+    private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
+        switch result {
+        case .verified(let safe):
+            return safe
+        case .unverified:
+            throw SubscriptionError.verificationFailed
+        }
+    }
+    #endif
 }

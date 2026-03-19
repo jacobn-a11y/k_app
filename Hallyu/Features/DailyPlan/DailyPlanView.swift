@@ -3,8 +3,16 @@ import SwiftData
 
 struct DailyPlanView: View {
     @Environment(ServiceContainer.self) private var services
+    @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel: DailyPlanViewModel?
+    @State private var reviewRouteItems: [ReviewItem] = []
+    @State private var showReviewRoute = false
+    @State private var routeToMediaLesson: MediaContent?
+    @State private var showHangulLesson = false
+    @State private var showMediaLibrary = false
+    @State private var activeActivityId: UUID?
+    @State private var infoAlert: PlanInfoAlert?
 
     var body: some View {
         NavigationStack {
@@ -23,6 +31,30 @@ struct DailyPlanView: View {
             }
             .navigationTitle("Today")
             .onAppear { loadPlan() }
+            .navigationDestination(isPresented: $showReviewRoute) {
+                ReviewSessionView(items: reviewRouteItems, services: services)
+                    .onDisappear { markRoutedActivityComplete() }
+            }
+            .navigationDestination(item: $routeToMediaLesson) { content in
+                MediaLessonView(
+                    content: content,
+                    userId: appState.currentUserId ?? UUID(),
+                    learnerLevel: appState.currentCEFRLevel.rawValue,
+                    services: services
+                )
+                .onDisappear { markRoutedActivityComplete() }
+            }
+            .navigationDestination(isPresented: $showHangulLesson) {
+                HangulLessonView(groupIndex: 0, services: services)
+                    .onDisappear { markRoutedActivityComplete() }
+            }
+            .navigationDestination(isPresented: $showMediaLibrary) {
+                MediaLibraryView()
+                    .onDisappear { markRoutedActivityComplete() }
+            }
+            .alert(item: $infoAlert) { alert in
+                Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
+            }
         }
     }
 
@@ -115,7 +147,7 @@ struct DailyPlanView: View {
 
             ForEach(plan.activities) { activity in
                 ActivityCardView(activity: activity) {
-                    viewModel.completeActivity(id: activity.id)
+                    startActivity(activity)
                 }
             }
         }
@@ -166,6 +198,13 @@ struct DailyPlanView: View {
             return
         }
 
+        if appState.currentUserId == nil {
+            appState.currentUserId = profile.userId
+        }
+        if let level = AppState.CEFRLevel(rawValue: profile.cefrLevel) {
+            appState.currentCEFRLevel = level
+        }
+
         let now = Date()
         let reviewDescriptor = FetchDescriptor<ReviewItem>(
             predicate: #Predicate { $0.nextReviewAt <= now }
@@ -191,13 +230,72 @@ struct DailyPlanView: View {
 
         viewModel = vm
     }
+
+    private func startActivity(_ activity: PlanActivity) {
+        switch activity.type {
+        case .srsReview:
+            let descriptor = FetchDescriptor<ReviewItem>()
+            let allItems = (try? modelContext.fetch(descriptor)) ?? []
+            guard let userId = appState.currentUserId ?? allItems.first?.userId else {
+                infoAlert = PlanInfoAlert(
+                    title: "No Review Items",
+                    message: "Complete a lesson first so we can build your review queue."
+                )
+                return
+            }
+            let dueItems = services.srsEngine.getDueItems(for: userId, from: allItems, limit: max(10, activity.reviewItemCount))
+            guard !dueItems.isEmpty else {
+                infoAlert = PlanInfoAlert(
+                    title: "Review Queue Empty",
+                    message: "You’re all caught up. Start a lesson to add new review items."
+                )
+                return
+            }
+            activeActivityId = activity.id
+            reviewRouteItems = dueItems
+            showReviewRoute = true
+
+        case .mediaLesson:
+            guard let mediaId = activity.mediaContentId else {
+                infoAlert = PlanInfoAlert(
+                    title: "Media Not Available",
+                    message: "This activity has no linked media yet."
+                )
+                return
+            }
+            let allMedia = (try? modelContext.fetch(FetchDescriptor<MediaContent>())) ?? []
+            guard let content = allMedia.first(where: { $0.id == mediaId }) else {
+                infoAlert = PlanInfoAlert(
+                    title: "Media Not Found",
+                    message: "Refresh your plan and try again."
+                )
+                return
+            }
+            activeActivityId = activity.id
+            routeToMediaLesson = content
+
+        case .hangulLesson:
+            activeActivityId = activity.id
+            showHangulLesson = true
+
+        case .pronunciationPractice, .vocabularyBuilding, .grammarReview:
+            activeActivityId = activity.id
+            showMediaLibrary = true
+        }
+    }
+
+    private func markRoutedActivityComplete() {
+        guard let id = activeActivityId, let viewModel else { return }
+        viewModel.completeActivity(id: id)
+        activeActivityId = nil
+    }
 }
 
 // MARK: - Activity Card
 
 struct ActivityCardView: View {
     let activity: PlanActivity
-    let onComplete: () -> Void
+    let onStart: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -231,7 +329,7 @@ struct ActivityCardView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 } else {
-                    Button("Start") { onComplete() }
+                    Button("Start") { onStart() }
                         .font(.caption)
                         .fontWeight(.medium)
                         .buttonStyle(.borderedProminent)
@@ -267,4 +365,10 @@ struct ActivityCardView: View {
         case .grammarReview: return .indigo
         }
     }
+}
+
+struct PlanInfoAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
 }

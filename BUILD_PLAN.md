@@ -43,113 +43,54 @@
 
 ```
 Hallyu/
-├── App/
-│   ├── HallyuApp.swift                 # Entry point, dependency injection
-│   ├── AppState.swift                   # Global observable state
-│   └── ContentView.swift                # Root navigation (tab bar)
-├── Core/
-│   ├── Models/                          # Shared data models (SwiftData)
-│   │   ├── User.swift
-│   │   ├── LearnerProfile.swift
-│   │   ├── VocabularyItem.swift
-│   │   ├── GrammarPattern.swift
-│   │   ├── MediaContent.swift
-│   │   ├── ReviewItem.swift
-│   │   ├── SkillMastery.swift
-│   │   └── StudySession.swift
-│   ├── Services/                        # Shared service protocols + implementations
-│   │   ├── ClaudeService.swift          # Claude API client
-│   │   ├── AudioService.swift           # Recording + playback
-│   │   ├── SpeechRecognitionService.swift
-│   │   ├── SRSEngine.swift              # Spaced repetition scheduler
-│   │   ├── LearnerModelService.swift    # Mastery tracking
-│   │   ├── MediaPlayerService.swift
-│   │   ├── AuthService.swift
-│   │   └── SubscriptionService.swift
-│   ├── Networking/
-│   │   ├── APIClient.swift              # Generic HTTP client
-│   │   └── SupabaseClient.swift         # Supabase-specific calls
-│   └── Utilities/
-│       ├── HangulUtilities.swift        # Jamo decomposition, block assembly
-│       └── KoreanTextAnalyzer.swift     # Frequency scoring, difficulty estimation
-├── Features/
-│   ├── Onboarding/
-│   │   ├── OnboardingView.swift
-│   │   ├── OnboardingViewModel.swift
-│   │   └── PlacementTestView.swift
-│   ├── Hangul/
-│   │   ├── HangulLessonView.swift
-│   │   ├── HangulLessonViewModel.swift
-│   │   ├── JamoDetailView.swift
-│   │   ├── StrokeOrderView.swift        # Animated stroke order
-│   │   ├── SyllableBlockBuilderView.swift
-│   │   ├── SpotInTheWildView.swift      # Media micro-task
-│   │   └── HangulData.swift             # Static jamo/syllable data
-│   ├── MediaLibrary/
-│   │   ├── MediaLibraryView.swift
-│   │   ├── MediaLibraryViewModel.swift
-│   │   ├── MediaDetailView.swift
-│   │   ├── MediaPlayerView.swift
-│   │   └── MediaFilters.swift
-│   ├── MediaLesson/
-│   │   ├── MediaLessonView.swift        # Scaffolded media consumption
-│   │   ├── MediaLessonViewModel.swift
-│   │   ├── ComprehensionTaskView.swift
-│   │   ├── VocabularyExtractorView.swift
-│   │   └── ShadowingView.swift
-│   ├── Claude/
-│   │   ├── ClaudeCoachView.swift        # Contextual AI overlay
-│   │   ├── ClaudeCoachViewModel.swift
-│   │   ├── ComprehensionCoachView.swift
-│   │   ├── GrammarExplainerView.swift
-│   │   ├── CulturalContextView.swift
-│   │   └── ClaudePrompts.swift          # All prompt templates
-│   ├── Pronunciation/
-│   │   ├── PronunciationView.swift
-│   │   ├── PronunciationViewModel.swift
-│   │   ├── WaveformComparisonView.swift
-│   │   └── MinimalPairDrillView.swift
-│   ├── Review/
-│   │   ├── ReviewSessionView.swift
-│   │   ├── ReviewSessionViewModel.swift
-│   │   ├── FlashcardView.swift
-│   │   └── ReviewStatsView.swift
-│   ├── Progress/
-│   │   ├── ProgressDashboardView.swift
-│   │   ├── ProgressViewModel.swift
-│   │   ├── CEFRMilestoneView.swift
-│   │   └── MediaChallengeView.swift
-│   ├── DailyPlan/
-│   │   ├── DailyPlanView.swift          # Today's learning plan
-│   │   ├── DailyPlanViewModel.swift
-│   │   └── PlanGeneratorService.swift
-│   └── Settings/
-│       ├── SettingsView.swift
-│       ├── SubscriptionView.swift
-│       └── ProfileView.swift
-├── Resources/
-│   ├── Assets.xcassets
-│   ├── Fonts/
-│   ├── Audio/                           # Bundled native speaker recordings
-│   └── HangulStrokeData/               # Stroke order animation data
-└── Tests/
-    ├── CoreTests/
-    │   ├── SRSEngineTests.swift
-    │   ├── LearnerModelTests.swift
-    │   ├── HangulUtilitiesTests.swift
-    │   └── KoreanTextAnalyzerTests.swift
-    ├── FeatureTests/
-    │   ├── HangulLessonViewModelTests.swift
-    │   ├── MediaLessonViewModelTests.swift
-    │   ├── ClaudeCoachViewModelTests.swift
-    │   ├── PronunciationViewModelTests.swift
-    │   ├── ReviewSessionViewModelTests.swift
-    │   └── DailyPlanViewModelTests.swift
-    └── IntegrationTests/
-        ├── ClaudeServiceIntegrationTests.swift
-        ├── SRSFlowTests.swift
-        └── OnboardingFlowTests.swift
+|-- App/
+|   |-- HallyuApp.swift                 # Entry point, dependency injection
+|   |-- AppState.swift                  # Global observable state
+|   `-- ContentView.swift               # Root navigation (tab bar)
+|-- Core/
+|   |-- Models/
+|   |   |-- LearnerProfile.swift
+|   |   |-- VocabularyItem.swift
+|   |   |-- GrammarPattern.swift
+|   |   |-- MediaContent.swift
+|   |   |-- ReviewItem.swift
+|   |   |-- SkillMastery.swift
+|   |   `-- StudySession.swift
+|   |-- Services/
+|   |   |-- ClaudeService.swift
+|   |   |-- AudioService.swift
+|   |   |-- SpeechRecognitionService.swift
+|   |   |-- SRSEngine.swift
+|   |   |-- LearnerModelService.swift
+|   |   |-- MediaPlayerService.swift
+|   |   |-- AuthService.swift
+|   |   `-- SubscriptionService.swift
+|   |-- Networking/
+|   |   |-- APIClient.swift
+|   |   `-- SupabaseClient.swift
+|   `-- Utilities/
+|       |-- HangulUtilities.swift
+|       `-- KoreanTextAnalyzer.swift
+|-- Features/
+|   |-- Onboarding/
+|   |-- Hangul/
+|   |-- MediaLibrary/
+|   |-- MediaLesson/
+|   |-- Claude/
+|   |-- Review/
+|   |-- Progress/
+|   |-- DailyPlan/
+|   `-- Settings/
+|-- Resources/
+|   |-- Assets.xcassets
+|   |-- Audio/
+|   |-- Fonts/
+|   `-- HangulStrokeData/
+`-- Tests/
+    |-- CoreTests/
+    `-- FeatureTests/
 ```
+
 
 ---
 
@@ -306,7 +247,7 @@ Every phase ends with a testable milestone. Each step within a phase lists the e
 
 #### Step 0.2 — Define Core Data Models
 - Create all SwiftData `@Model` classes in `Core/Models/`
-- `User.swift`, `LearnerProfile.swift`, `VocabularyItem.swift`, `GrammarPattern.swift`, `MediaContent.swift`, `ReviewItem.swift`, `SkillMastery.swift`, `StudySession.swift`
+- `LearnerProfile.swift`, `VocabularyItem.swift`, `GrammarPattern.swift`, `MediaContent.swift`, `ReviewItem.swift`, `SkillMastery.swift`, `StudySession.swift`
 - Each model mirrors the database schema but is the local SwiftData representation
 - Add `Codable` conformance for Supabase sync
 
@@ -695,7 +636,7 @@ Every phase ends with a testable milestone. Each step within a phase lists the e
 **Goal:** Users see meaningful progress and receive periodic proficiency assessments.
 
 #### Step 8.1 — Progress Dashboard
-- `ProgressDashboardView.swift`:
+- Progress dashboard surfaces in `ContentView.swift` + `CEFRMilestoneView.swift`:
   - CEFR level indicator with sub-skill breakdown (reading, listening, vocabulary, grammar, pronunciation)
   - "Can-do" milestone list: completed and upcoming (e.g., "Can read a webtoon panel without help")
   - Charts: vocabulary growth over time, daily study minutes, accuracy trends

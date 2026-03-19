@@ -82,7 +82,11 @@ struct ReviewTabView: View {
     private func loadDueItems() {
         let descriptor = FetchDescriptor<ReviewItem>()
         let allItems = (try? modelContext.fetch(descriptor)) ?? []
-        let userId = appState.currentUserId ?? UUID()
+        guard let userId = appState.currentUserId ?? allItems.first?.userId else {
+            dueItems = []
+            isLoading = false
+            return
+        }
         dueItems = services.srsEngine.getDueItems(for: userId, from: allItems, limit: 20)
         isLoading = false
     }
@@ -102,6 +106,7 @@ struct ProgressTabView: View {
                     cefrLevelCard
                     studyStatsCard
                     skillBreakdownCard
+                    monthlyChallengeCard
                 }
                 .padding()
             }
@@ -176,6 +181,33 @@ struct ProgressTabView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
+    private var monthlyChallengeCard: some View {
+        NavigationLink {
+            MediaChallengeEntryView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "trophy.fill")
+                    .foregroundStyle(.orange)
+                    .font(.title3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Monthly Challenge")
+                        .font(.headline)
+                    Text("Assess CEFR progress with unseen media")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func statItem(value: String, label: String, icon: String) -> some View {
         VStack(spacing: 4) {
             Image(systemName: icon)
@@ -246,4 +278,33 @@ struct ProgressStats {
 struct SkillStat {
     let name: String
     let mastery: Double
+}
+
+struct MediaChallengeEntryView: View {
+    @Environment(ServiceContainer.self) private var services
+    @Environment(AppState.self) private var appState
+    @Environment(\.modelContext) private var modelContext
+    @State private var viewModel: MediaChallengeViewModel?
+
+    var body: some View {
+        Group {
+            if let viewModel {
+                MediaChallengeView(viewModel: viewModel)
+            } else {
+                ProgressView("Preparing challenge...")
+            }
+        }
+        .onAppear {
+            guard viewModel == nil else { return }
+            let vm = MediaChallengeViewModel(
+                claudeService: services.claude,
+                learnerModel: services.learnerModel,
+                userId: appState.currentUserId ?? UUID(),
+                learnerLevel: appState.currentCEFRLevel.rawValue
+            )
+            let media = (try? modelContext.fetch(FetchDescriptor<MediaContent>())) ?? []
+            vm.loadChallenge(availableContent: media)
+            viewModel = vm
+        }
+    }
 }

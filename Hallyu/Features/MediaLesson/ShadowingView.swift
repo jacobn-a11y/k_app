@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 /// Step 5.3: Shadowing practice - user listens to and repeats key sentences.
 struct ShadowingView: View {
@@ -6,7 +7,10 @@ struct ShadowingView: View {
     @State private var isRecording: Bool = false
     @State private var lastTranscript: String = ""
     @State private var lastConfidence: Double = 0
+    @State private var lastPronunciationScore: PronunciationScore?
     @State private var showFeedback: Bool = false
+    @State private var lastClaudeFeedback: PronunciationFeedback?
+    private let speechSynthesizer = AVSpeechSynthesizer()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -59,7 +63,7 @@ struct ShadowingView: View {
 
             // Play native audio button
             Button {
-                // Play the segment from the media
+                playNativeSentence(sentence.korean)
             } label: {
                 Label("Listen to Native", systemImage: "speaker.wave.2.fill")
                     .frame(maxWidth: .infinity)
@@ -90,7 +94,7 @@ struct ShadowingView: View {
             // Record button
             Button {
                 if isRecording {
-                    stopRecording()
+                    stopRecording(targetSentence: sentence.korean)
                 } else {
                     startRecording()
                 }
@@ -144,7 +148,7 @@ struct ShadowingView: View {
                 }
                 Text(lastTranscript.isEmpty ? "(no speech detected)" : lastTranscript)
                     .font(.body)
-                    .foregroundStyle(lastConfidence >= 0.7 ? .green : .orange)
+                    .foregroundStyle((lastPronunciationScore?.overall ?? lastConfidence) >= 0.7 ? .green : .orange)
             }
             .padding()
             .background(
@@ -154,14 +158,22 @@ struct ShadowingView: View {
 
             // Confidence score
             HStack {
-                Text("Match: \(Int(lastConfidence * 100))%")
+                let overall = lastPronunciationScore?.overall ?? lastConfidence
+                Text("Match: \(Int(overall * 100))%")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundStyle(lastConfidence >= 0.7 ? .green : .orange)
+                    .foregroundStyle(overall >= 0.7 ? .green : .orange)
 
                 Spacer()
 
                 confidenceBadge
+            }
+
+            if let score = lastPronunciationScore {
+                Text("Jamo \(Int(score.jamoAccuracy * 100))% • Prosody \(Int(score.prosodyAccuracy * 100))%")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Action buttons
@@ -170,6 +182,8 @@ struct ShadowingView: View {
                     showFeedback = false
                     lastTranscript = ""
                     lastConfidence = 0
+                    lastPronunciationScore = nil
+                    lastClaudeFeedback = nil
                 } label: {
                     Label("Try Again", systemImage: "arrow.counterclockwise")
                         .frame(maxWidth: .infinity)
@@ -181,20 +195,39 @@ struct ShadowingView: View {
                     showFeedback = false
                     lastTranscript = ""
                     lastConfidence = 0
+                    lastPronunciationScore = nil
+                    lastClaudeFeedback = nil
                 } label: {
                     Text(viewModel.shadowingCurrentIndex + 1 < viewModel.shadowingSentences.count ? "Next" : "Finish")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
             }
+
+            if let claudeFeedback = lastClaudeFeedback {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(claudeFeedback.feedback)
+                        .font(.subheadline)
+                    if let tip = claudeFeedback.articulatoryTip {
+                        Text("Tip: \(tip)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+                .background(Color(.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
         }
     }
 
     private var confidenceBadge: some View {
+        let overall = lastPronunciationScore?.overall ?? lastConfidence
         let (text, color): (String, Color) = {
-            if lastConfidence >= 0.9 { return ("Excellent", .green) }
-            if lastConfidence >= 0.7 { return ("Good", .blue) }
-            if lastConfidence >= 0.5 { return ("Fair", .orange) }
+            if overall >= 0.9 { return ("Excellent", .green) }
+            if overall >= 0.7 { return ("Good", .blue) }
+            if overall >= 0.5 { return ("Fair", .orange) }
             return ("Keep Trying", .red)
         }()
 
@@ -217,22 +250,45 @@ struct ShadowingView: View {
         }
     }
 
-    private func stopRecording() {
+    private func stopRecording(targetSentence: String) {
         isRecording = false
         Task {
             guard let audioURL = try? await viewModel.audioService.stopRecording() else { return }
             let result = try? await viewModel.speechRecognition.recognizeSpeech(from: audioURL)
+            let claudeFeedback = await viewModel.getPronunciationFeedback(
+                transcript: result?.transcript ?? "",
+                target: targetSentence
+            )
 
             await MainActor.run {
-                lastTranscript = result?.transcript ?? ""
-                lastConfidence = result?.confidence ?? 0
+                let transcript = result?.transcript ?? ""
+                let asrConfidence = result?.confidence ?? 0
+                let score = PronunciationScorer.evaluate(
+                    transcript: transcript,
+                    target: targetSentence,
+                    asrConfidence: asrConfidence
+                )
+
+                lastTranscript = transcript
+                lastConfidence = score.overall
+                lastPronunciationScore = score
+                lastClaudeFeedback = claudeFeedback
                 showFeedback = true
                 viewModel.recordShadowingAttempt(
                     transcript: lastTranscript,
-                    confidence: lastConfidence
+                    confidence: score.overall
                 )
             }
         }
+    }
+
+    private func playNativeSentence(_ text: String) {
+        guard !text.isEmpty else { return }
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: "ko-KR")
+        utterance.rate = 0.42
+        speechSynthesizer.speak(utterance)
     }
 
     // MARK: - Completed

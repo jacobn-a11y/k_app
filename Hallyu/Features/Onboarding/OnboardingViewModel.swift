@@ -70,6 +70,7 @@ final class OnboardingViewModel {
     private(set) var hasSpokenFirstJamo: Bool = false
     private(set) var isComplete: Bool = false
     private(set) var shouldShowPlacementTest: Bool = false
+    private(set) var placedCEFRLevel: String?
 
     // MARK: - Computed
 
@@ -129,26 +130,25 @@ final class OnboardingViewModel {
             mediaInterests: Array(selectedMediaInterests),
             experience: selectedExperience ?? .none,
             dailyGoalMinutes: selectedGoal.rawValue,
-            needsPlacement: shouldShowPlacementTest
+            needsPlacement: shouldShowPlacementTest,
+            placedCEFRLevel: placedCEFRLevel
         )
     }
 
-    func dismissPlacementTest() {
+    func applyPlacementResult(cefrLevel: String) {
+        placedCEFRLevel = cefrLevel
         shouldShowPlacementTest = false
         if let next = Step(rawValue: currentStep.rawValue + 1) {
             currentStep = next
         }
     }
 
-    func completePlacementAndFinish(cefrLevel: String) -> OnboardingResult {
-        isComplete = true
-        return OnboardingResult(
-            mediaInterests: Array(selectedMediaInterests),
-            experience: selectedExperience ?? .some,
-            dailyGoalMinutes: selectedGoal.rawValue,
-            needsPlacement: false,
-            placedCEFRLevel: cefrLevel
-        )
+    func dismissPlacementTest() {
+        shouldShowPlacementTest = false
+        if currentStep == .experience,
+           let next = Step(rawValue: currentStep.rawValue + 1) {
+            currentStep = next
+        }
     }
 }
 

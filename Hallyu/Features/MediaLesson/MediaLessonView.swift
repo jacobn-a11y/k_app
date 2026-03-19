@@ -176,16 +176,3 @@ struct MediaLessonView: View {
         }
     }
 }
-
-// MARK: - Subtitle Mode Override Environment Key
-
-private struct SubtitleModeOverrideKey: EnvironmentKey {
-    static let defaultValue: SubtitleMode? = nil
-}
-
-extension EnvironmentValues {
-    var subtitleModeOverride: SubtitleMode? {
-        get { self[SubtitleModeOverrideKey.self] }
-        set { self[SubtitleModeOverrideKey.self] = newValue }
-    }
-}

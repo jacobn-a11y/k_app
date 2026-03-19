@@ -3,11 +3,16 @@ import Foundation
 // MARK: - Claude Service
 
 protocol ClaudeServiceProtocol: Sendable {
+    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws
     func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse
     func getPronunciationFeedback(transcript: String, target: String) async throws -> PronunciationFeedback
     func getGrammarExplanation(pattern: String, context: String) async throws -> GrammarExplanation
     func generatePracticeItems(mediaContentId: UUID, learnerLevel: String) async throws -> [PracticeItem]
     func getCulturalContext(moment: String, mediaContext: String) async throws -> CulturalContextResponse
+}
+
+extension ClaudeServiceProtocol {
+    func checkTierAllowed(tier: AppState.SubscriptionTier) async throws {}
 }
 
 struct ComprehensionContext: Codable, Sendable {
