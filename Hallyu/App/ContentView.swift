@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(ServiceContainer.self) private var services
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         TabView {
@@ -9,7 +10,7 @@ struct ContentView: View {
                 PlaceholderView(title: "Daily Plan")
             }
             Tab("Learn", systemImage: "book.fill") {
-                PlaceholderView(title: "Media Library")
+                MediaLibraryView()
             }
             Tab("Review", systemImage: "arrow.counterclockwise") {
                 PlaceholderView(title: "Review")
@@ -20,6 +21,9 @@ struct ContentView: View {
             Tab("Settings", systemImage: "gearshape.fill") {
                 PlaceholderView(title: "Settings")
             }
+        }
+        .onAppear {
+            MediaContentSeeder.seedIfNeeded(modelContext: modelContext)
         }
     }
 }
