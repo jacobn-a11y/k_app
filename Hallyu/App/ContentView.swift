@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(ServiceContainer.self) private var services
+    @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
@@ -19,7 +20,7 @@ struct ContentView: View {
                 PlaceholderView(title: "Progress")
             }
             Tab("Settings", systemImage: "gearshape.fill") {
-                PlaceholderView(title: "Settings")
+                SettingsView()
             }
         }
         .onAppear {
