@@ -29,6 +29,18 @@ actor ClaudeService: ClaudeServiceProtocol {
         }
     }
 
+    // MARK: - Rate Limiting
+
+    private var lastRequestTime: Date?
+    private let minRequestInterval: TimeInterval = 1.0
+
+    private func enforceRateLimit() throws {
+        if let lastTime = lastRequestTime,
+           Date().timeIntervalSince(lastTime) < minRequestInterval {
+            throw ClaudeServiceError.rateLimitExceeded
+        }
+    }
+
     func getDailyInteractionCount() -> Int {
         interactionTracker.todayCount
     }
@@ -138,6 +150,9 @@ actor ClaudeService: ClaudeServiceProtocol {
     // MARK: - Private
 
     private func sendMessage<T: Decodable>(systemPrompt: String, userMessage: String, role: ClaudeRole) async throws -> T {
+        try enforceRateLimit()
+        lastRequestTime = Date()
+
         let requestBody = ClaudeAPIRequest(
             model: "claude-sonnet-4-20250514",
             maxTokens: 1024,

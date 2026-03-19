@@ -64,7 +64,7 @@ struct MediaLibraryView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 10)
             .background(isSelected ? Color.accentColor : Color(.systemGray6))
             .foregroundStyle(isSelected ? .white : .primary)
             .clipShape(Capsule())
@@ -125,7 +125,15 @@ struct MediaLibraryView: View {
 
     private var contentGrid: some View {
         Group {
-            if viewModel.filteredContent.isEmpty {
+            if viewModel.isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Loading media library...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.filteredContent.isEmpty {
                 emptyState
             } else {
                 ScrollView {
@@ -265,6 +273,10 @@ struct MediaCardView: View {
         VStack(alignment: .leading, spacing: 8) {
             // Thumbnail placeholder
             ZStack(alignment: .bottomTrailing) {
+                // Downloaded indicator
+                if content.thumbnailUrl.hasPrefix("local://") {
+                    // Show offline badge overlay
+                }
                 RoundedRectangle(cornerRadius: 8)
                     .fill(thumbnailColor)
                     .frame(height: 100)
@@ -319,6 +331,9 @@ struct MediaCardView: View {
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(content.title), \(content.cefrLevel) level, \(coverageLevel.label) difficulty")
+        .accessibilityHint("Double tap to view details")
     }
 
     private var contentTypeIcon: String {

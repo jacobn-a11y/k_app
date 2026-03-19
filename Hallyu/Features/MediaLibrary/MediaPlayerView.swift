@@ -297,26 +297,36 @@ struct MediaPlayerView: View {
                 Button { viewModel.previousSegment() } label: {
                     Image(systemName: "backward.end.fill")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
 
                 Button { viewModel.seekBackward() } label: {
                     Image(systemName: "gobackward.10")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
 
                 Button { viewModel.togglePlayback() } label: {
                     Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 44))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
 
                 Button { viewModel.seekForward() } label: {
                     Image(systemName: "goforward.10")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
 
                 Button { viewModel.nextSegment() } label: {
                     Image(systemName: "forward.end.fill")
                         .font(.title3)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
             }
 

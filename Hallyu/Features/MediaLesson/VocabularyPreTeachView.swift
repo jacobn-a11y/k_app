@@ -4,6 +4,7 @@ import SwiftUI
 /// Shows 5-8 words that will appear in the upcoming media.
 struct VocabularyPreTeachView: View {
     @Bindable var viewModel: MediaLessonViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 20) {
@@ -51,7 +52,7 @@ struct VocabularyPreTeachView: View {
         VStack(spacing: 16) {
             // Korean word (always visible)
             Text(word.korean)
-                .font(.system(size: 48, weight: .bold))
+                .scaledFont(size: 48, weight: .bold)
                 .minimumScaleFactor(0.5)
 
             if viewModel.preTaskShowingAnswer {
@@ -104,7 +105,7 @@ struct VocabularyPreTeachView: View {
             if viewModel.preTaskShowingAnswer {
                 HStack(spacing: 16) {
                     Button {
-                        withAnimation { viewModel.submitPreTaskAnswer(knewIt: false) }
+                        withAnimation(reduceMotion ? nil : .easeInOut) { viewModel.submitPreTaskAnswer(knewIt: false) }
                     } label: {
                         Label("Didn't know", systemImage: "xmark.circle")
                             .frame(maxWidth: .infinity)
@@ -113,7 +114,7 @@ struct VocabularyPreTeachView: View {
                     .tint(.orange)
 
                     Button {
-                        withAnimation { viewModel.submitPreTaskAnswer(knewIt: true) }
+                        withAnimation(reduceMotion ? nil : .easeInOut) { viewModel.submitPreTaskAnswer(knewIt: true) }
                     } label: {
                         Label("Knew it!", systemImage: "checkmark.circle")
                             .frame(maxWidth: .infinity)
@@ -123,7 +124,7 @@ struct VocabularyPreTeachView: View {
                 }
             } else {
                 Button {
-                    withAnimation { viewModel.revealPreTaskAnswer() }
+                    withAnimation(reduceMotion ? nil : .easeInOut) { viewModel.revealPreTaskAnswer() }
                 } label: {
                     Text("Reveal Answer")
                         .frame(maxWidth: .infinity)

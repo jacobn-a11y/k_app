@@ -80,12 +80,25 @@ struct ComprehensionCoachView: View {
                 }
 
             case .error(let message):
-                VStack {
+                VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle")
+                        .font(.title2)
                         .foregroundStyle(.red)
                     Text(message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Try Again") {
+                        Task {
+                            await viewModel.requestExplanation(
+                                transcript: transcript,
+                                learnerLevel: learnerLevel,
+                                knownVocabulary: knownVocabulary
+                            )
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
             }
         }

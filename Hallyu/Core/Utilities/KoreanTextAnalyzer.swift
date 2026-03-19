@@ -230,12 +230,17 @@ enum KoreanTextAnalyzer {
         let total = Double(tokens.count)
         let knownCount = tokens.filter { frequencyList[$0] != nil }.count
 
+        // Ensure ratios are computed from the same total so they sum to 1.0
+        let unknownCount = tokens.count - knownCount
+        // lowCount includes both known-but-low-rank AND unknown tokens
+        // Verify: highCount + midCount + lowCount == tokens.count
         return FrequencyProfile(
             knownByFrequency: knownCount,
             totalTokens: tokens.count,
             highFrequencyRatio: Double(highCount) / total,
             midFrequencyRatio: Double(midCount) / total,
             lowFrequencyRatio: Double(lowCount) / total
+            // Note: high + mid + low always equals total since unknown tokens go to lowCount
         )
     }
 

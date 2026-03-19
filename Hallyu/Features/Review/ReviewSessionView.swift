@@ -63,7 +63,7 @@ struct ReviewSessionView: View {
                         .foregroundStyle(.secondary)
 
                     Text(displayText(for: item))
-                        .font(.system(size: 48, weight: .bold))
+                        .scaledFont(size: 48, weight: .bold)
 
                     Text(item.itemType.replacingOccurrences(of: "_", with: " "))
                         .font(.caption)
@@ -80,7 +80,7 @@ struct ReviewSessionView: View {
                 // Back: answer
                 VStack(spacing: 12) {
                     Text(displayText(for: item))
-                        .font(.system(size: 36, weight: .bold))
+                        .scaledFont(size: 36, weight: .bold)
 
                     Divider()
 

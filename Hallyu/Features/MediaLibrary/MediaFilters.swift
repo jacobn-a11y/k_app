@@ -118,7 +118,9 @@ struct MediaFilterState {
             return false
         }
         if !searchQuery.isEmpty {
-            let query = searchQuery.lowercased()
+            // Cap search query length to prevent performance issues
+            let safeQuery = String(searchQuery.prefix(100))
+            let query = safeQuery.lowercased()
             let matchesTitle = content.title.lowercased().contains(query)
             let matchesSource = content.source.lowercased().contains(query)
             let matchesTags = content.tags.contains { $0.lowercased().contains(query) }

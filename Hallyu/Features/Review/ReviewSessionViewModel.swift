@@ -121,6 +121,7 @@ final class ReviewSessionViewModel {
         _ = srsEngine.scheduleNextReview(item: item, wasCorrect: wasCorrect, responseTime: responseTime)
 
         // Update learner model
+        // Note: item.userId is trusted here as items are filtered per-user at query time
         Task {
             do {
                 try await learnerModel.updateMastery(

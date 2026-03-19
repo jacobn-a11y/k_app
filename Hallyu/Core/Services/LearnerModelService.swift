@@ -136,7 +136,7 @@ final class LearnerModelService: LearnerModelServiceProtocol, @unchecked Sendabl
             sum + entry.accuracy * Double(entry.attempts)
         }
 
-        return weightedSum / totalWeight
+        return min(weightedSum / totalWeight, 1.0)
     }
 
     /// Determine CEFR level based on aggregate mastery.

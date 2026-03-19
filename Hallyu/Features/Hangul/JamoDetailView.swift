@@ -75,7 +75,7 @@ struct JamoDetailView: View {
             )
 
             Text(String(jamo.character))
-                .font(.system(size: 80, weight: .bold))
+                .scaledFont(size: 80, weight: .bold)
         }
     }
 
@@ -85,7 +85,7 @@ struct JamoDetailView: View {
                 .font(.headline)
 
             Text(String(jamo.character))
-                .font(.system(size: 100, weight: .bold))
+                .scaledFont(size: 100, weight: .bold)
 
             Text(jamo.romanization)
                 .font(.title2)
@@ -111,13 +111,13 @@ struct JamoDetailView: View {
                 .font(.headline)
 
             Text(String(jamo.character))
-                .font(.system(size: 80, weight: .bold))
+                .scaledFont(size: 80, weight: .bold)
 
             Text(jamo.mnemonic)
                 .font(.title3)
                 .multilineTextAlignment(.center)
                 .padding()
-                .background(Color.yellow.opacity(0.1))
+                .background(Color.yellow.opacity(0.25))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
             Text(jamo.romanization)
@@ -141,7 +141,7 @@ struct JamoDetailView: View {
                 .font(.headline)
 
             Text(String(jamo.character))
-                .font(.system(size: 80, weight: .bold))
+                .scaledFont(size: 80, weight: .bold)
 
             Text(jamo.romanization)
                 .font(.title2)

@@ -279,13 +279,18 @@ struct SyllableBlockBuilderView: View {
                 viewModel.placeJamo(entry, in: position)
                 return true
             }
+            .accessibilityLabel(
+                position == .initial ? "Initial consonant slot" :
+                position == .medial ? "Medial vowel slot" :
+                "Final consonant slot"
+            )
         }
     }
 
     private func jamoTile(_ jamo: JamoEntry) -> some View {
         Text(String(jamo.character))
             .font(.system(size: 24, weight: .medium))
-            .frame(width: 40, height: 40)
+            .frame(width: 48, height: 48)
             .background(Color(.tertiarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .draggable(jamo.id)

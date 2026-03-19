@@ -4,6 +4,7 @@ import SwiftData
 struct OnboardingView: View {
     @Environment(ServiceContainer.self) private var services
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var viewModel = OnboardingViewModel()
     let onComplete: (OnboardingResult) -> Void
 
@@ -36,7 +37,7 @@ struct OnboardingView: View {
                     .tag(OnboardingViewModel.Step.firstLesson)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .animation(.easeInOut, value: viewModel.currentStep)
+            .animation(reduceMotion ? nil : .easeInOut, value: viewModel.currentStep)
 
             // Navigation buttons
             navigationButtons
@@ -198,7 +199,7 @@ struct OnboardingView: View {
             Spacer()
 
             Text("\u{314F}")
-                .font(.system(size: 120, weight: .regular))
+                .scaledFont(size: 120, weight: .regular)
                 .padding()
 
             Text("This is \u{314F} (ah)")
@@ -234,7 +235,7 @@ struct OnboardingView: View {
 
             Spacer()
         }
-        .animation(.easeInOut, value: viewModel.hasSpokenFirstJamo)
+        .animation(reduceMotion ? nil : .easeInOut, value: viewModel.hasSpokenFirstJamo)
     }
 
     // MARK: - Navigation
@@ -272,6 +273,7 @@ struct OnboardingView: View {
             }
         }
         .padding()
+        .padding(.bottom, 8)
     }
 
     // MARK: - Helpers

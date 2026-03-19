@@ -7,6 +7,7 @@ struct StrokeOrderView: View {
     @State private var currentStroke: Int = 0
     @State private var isAnimating: Bool = false
     @State private var animationSpeed: AnimationSpeed = .normal
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum AnimationSpeed: String, CaseIterable {
         case slow = "Slow"
@@ -26,6 +27,7 @@ struct StrokeOrderView: View {
             Text(String(character))
                 .font(.system(size: 32, weight: .bold))
                 .foregroundStyle(.secondary)
+                .accessibilityLabel("Jamo character \(String(character))")
 
             // Canvas
             Canvas { context, size in
@@ -79,6 +81,7 @@ struct StrokeOrderView: View {
                     Label("Replay", systemImage: "arrow.counterclockwise")
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("Replay stroke animation")
 
                 Picker("Speed", selection: $animationSpeed) {
                     ForEach(AnimationSpeed.allCases, id: \.self) { speed in
@@ -87,6 +90,7 @@ struct StrokeOrderView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 140)
+                .accessibilityLabel("Animation speed")
             }
         }
         .onAppear {
@@ -155,7 +159,7 @@ struct StrokeOrderView: View {
         }
 
         animationProgress = 0
-        withAnimation(.linear(duration: animationSpeed.duration)) {
+        withAnimation(reduceMotion ? nil : .linear(duration: animationSpeed.duration)) {
             animationProgress = 1.0
         }
 

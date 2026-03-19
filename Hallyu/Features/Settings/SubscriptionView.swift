@@ -238,8 +238,7 @@ struct TierCard: View {
                             .padding()
                     }
                 }
-                .background(Color.blue)
-                .foregroundStyle(.white)
+                .buttonStyle(.borderedProminent)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .disabled(isLoading)
             }

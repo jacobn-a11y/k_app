@@ -121,9 +121,12 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
         var remainingMinutes = goalMinutes
 
         // Already completed activities today reduce available time
-        let completedMinutesToday = todaySessions
+        // Sum total seconds first, then convert to minutes to avoid losing
+        // fractional minutes from per-session integer division.
+        let completedSecondsToday = todaySessions
             .filter { $0.completedAt != nil }
-            .reduce(0) { $0 + ($1.durationSeconds / 60) }
+            .reduce(0) { $0 + $1.durationSeconds }
+        let completedMinutesToday = completedSecondsToday / 60
         remainingMinutes = max(0, remainingMinutes - completedMinutesToday)
 
         // Step 1: Schedule overdue SRS reviews (highest priority)
