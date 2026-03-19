@@ -7,7 +7,7 @@ struct ContentView: View {
     var body: some View {
         TabView {
             Tab("Today", systemImage: "calendar") {
-                PlaceholderView(title: "Daily Plan")
+                DailyPlanView()
             }
             Tab("Learn", systemImage: "book.fill") {
                 MediaLibraryView()
