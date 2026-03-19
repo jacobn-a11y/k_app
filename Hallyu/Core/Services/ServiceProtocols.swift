@@ -50,8 +50,64 @@ struct PracticeItem: Codable, Sendable {
 struct CulturalContextResponse: Codable, Sendable {
     let explanation: String
     let socialDynamics: String?
+    let honorificNote: String?
     let historicalContext: String?
     let relatedMedia: [String]
+
+    // Backwards-compatible init (honorificNote defaults to nil)
+    init(
+        explanation: String,
+        socialDynamics: String? = nil,
+        honorificNote: String? = nil,
+        historicalContext: String? = nil,
+        relatedMedia: [String] = []
+    ) {
+        self.explanation = explanation
+        self.socialDynamics = socialDynamics
+        self.honorificNote = honorificNote
+        self.historicalContext = historicalContext
+        self.relatedMedia = relatedMedia
+    }
+}
+
+// MARK: - Enhanced Practice Item
+
+struct EnhancedPracticeItem: Codable, Sendable {
+    let type: String // fill_in_blank, comprehension, production
+    let prompt: String
+    let correctAnswer: String
+    let alternatives: [String]
+    let sourceContext: String?
+}
+
+// MARK: - Claude Interaction Tracking
+
+enum ClaudeRole: String, Codable, Sendable, CaseIterable {
+    case comprehension
+    case pronunciation
+    case grammar
+    case contentAdapter = "content_adapter"
+    case cultural
+}
+
+struct ClaudeTierLimits {
+    let dailyLimit: Int? // nil = unlimited
+
+    static func limits(for tier: AppState.SubscriptionTier) -> ClaudeTierLimits {
+        switch tier {
+        case .free:
+            return ClaudeTierLimits(dailyLimit: 0)
+        case .core:
+            return ClaudeTierLimits(dailyLimit: 50)
+        case .pro:
+            return ClaudeTierLimits(dailyLimit: nil)
+        }
+    }
+
+    func isAllowed(currentCount: Int) -> Bool {
+        guard let limit = dailyLimit else { return true }
+        return currentCount < limit
+    }
 }
 
 // MARK: - Audio Service
