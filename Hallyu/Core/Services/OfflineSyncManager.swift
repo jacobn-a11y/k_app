@@ -13,15 +13,23 @@ struct PendingSyncOperation: Codable, Identifiable {
     let id: UUID
     let type: SyncOperationType
     let payload: Data
+    let payloadChecksum: String
     let createdAt: Date
     var retryCount: Int
+    var synced: Bool
 
     init(type: SyncOperationType, payload: Data) {
         self.id = UUID()
         self.type = type
         self.payload = payload
+        // Simple checksum: use payload byte count + first/last bytes as integrity marker
+        let bytes = [UInt8](payload)
+        let first = bytes.first.map(String.init) ?? "0"
+        let last = bytes.last.map(String.init) ?? "0"
+        self.payloadChecksum = "\(payload.count)_\(first)_\(last)"
         self.createdAt = Date()
         self.retryCount = 0
+        self.synced = false
     }
 }
 
@@ -63,8 +71,22 @@ actor OfflineSyncManager {
         var remaining: [PendingSyncOperation] = []
 
         for var operation in pendingOperations {
+            // Skip already-synced operations
+            guard !operation.synced else { continue }
+
+            // Verify data integrity before syncing
+            let bytes = [UInt8](operation.payload)
+            let first = bytes.first.map(String.init) ?? "0"
+            let last = bytes.last.map(String.init) ?? "0"
+            let currentChecksum = "\(operation.payload.count)_\(first)_\(last)"
+            guard currentChecksum == operation.payloadChecksum else {
+                failed += 1
+                continue
+            }
+
             do {
                 try await syncOperation(operation, using: supabaseClient)
+                operation.synced = true
                 synced += 1
             } catch {
                 operation.retryCount += 1

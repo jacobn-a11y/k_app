@@ -25,6 +25,18 @@ struct MediaLessonView: View {
         .navigationTitle(viewModel.currentStep.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                if viewModel.currentStepIndex > 0 && viewModel.currentStep != .summary {
+                    Button("Back") {
+                        withAnimation {
+                            let prevIndex = viewModel.currentStepIndex - 1
+                            if prevIndex >= 0 {
+                                viewModel.goToStep(viewModel.availableSteps[prevIndex])
+                            }
+                        }
+                    }
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 if viewModel.canAdvance && viewModel.currentStep != .summary {
                     Button("Next") {

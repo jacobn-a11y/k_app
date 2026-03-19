@@ -190,7 +190,7 @@ enum KoreanTextAnalyzer {
     /// Estimate vocabulary coverage for a learner given their known words
     static func estimateCoverage(text: String, knownWords: Set<String>) -> Double {
         let tokens = tokenize(text)
-        guard !tokens.isEmpty else { return 1.0 }
+        guard !tokens.isEmpty else { return 0.0 }
 
         let knownCount = tokens.filter { knownWords.contains($0) }.count
         return Double(knownCount) / Double(tokens.count)
@@ -230,12 +230,17 @@ enum KoreanTextAnalyzer {
         let total = Double(tokens.count)
         let knownCount = tokens.filter { frequencyList[$0] != nil }.count
 
+        // Ensure ratios are computed from the same total so they sum to 1.0
+        let unknownCount = tokens.count - knownCount
+        // lowCount includes both known-but-low-rank AND unknown tokens
+        // Verify: highCount + midCount + lowCount == tokens.count
         return FrequencyProfile(
             knownByFrequency: knownCount,
             totalTokens: tokens.count,
             highFrequencyRatio: Double(highCount) / total,
             midFrequencyRatio: Double(midCount) / total,
             lowFrequencyRatio: Double(lowCount) / total
+            // Note: high + mid + low always equals total since unknown tokens go to lowCount
         )
     }
 

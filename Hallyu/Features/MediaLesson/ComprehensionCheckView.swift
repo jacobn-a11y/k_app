@@ -45,7 +45,7 @@ struct ComprehensionCheckView: View {
                     .font(.caption)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(questionTypeColor(question.type).opacity(0.15))
+                    .background(questionTypeColor(question.type).opacity(0.25))
                     .foregroundStyle(questionTypeColor(question.type))
                     .clipShape(Capsule())
             }
@@ -135,7 +135,7 @@ struct ComprehensionCheckView: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(wasCorrect ? Color.green.opacity(0.08) : Color.red.opacity(0.08))
+                .fill(wasCorrect ? Color.green.opacity(0.25) : Color.red.opacity(0.25))
         )
     }
 

@@ -120,6 +120,8 @@ final class SyllableBlockBuilderViewModel {
 
         let tailIndex: Int
         if let final_ = finalSlot {
+            // ?? 0 is intentional: index 0 in finalConsonants represents "no final consonant" (empty),
+            // so falling back to 0 when a character isn't found is the correct default behavior.
             tailIndex = HangulUtilities.finalConsonants.firstIndex(where: { $0 == final_.character }) ?? 0
         } else {
             tailIndex = 0

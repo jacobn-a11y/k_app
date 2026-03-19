@@ -63,15 +63,24 @@ struct AuthView: View {
                         .keyboardType(.emailAddress)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
+                        .submitLabel(.next)
                         .padding()
                         .background(Color(.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .onChange(of: email) { _, _ in errorMessage = nil }
 
                     SecureField("Password", text: $password)
                         .textContentType(isSignUp ? .newPassword : .password)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            if !email.isEmpty && !password.isEmpty {
+                                Task { await submitEmailAuth() }
+                            }
+                        }
                         .padding()
                         .background(Color(.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .onChange(of: password) { _, _ in errorMessage = nil }
                 }
                 .padding(.horizontal)
 

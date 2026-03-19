@@ -15,8 +15,8 @@ enum APIError: Error, LocalizedError {
         case .invalidURL: return "Invalid URL"
         case .invalidResponse: return "Invalid response from server"
         case .httpError(let code, _): return "HTTP error: \(code)"
-        case .decodingError(let error): return "Decoding error: \(error.localizedDescription)"
-        case .networkError(let error): return "Network error: \(error.localizedDescription)"
+        case .decodingError: return "Invalid server response"
+        case .networkError: return "Network error. Please check your connection."
         case .unauthorized: return "Unauthorized"
         case .rateLimited: return "Rate limited"
         case .serverError(let code): return "Server error: \(code)"
@@ -74,9 +74,16 @@ actor APIClient {
     private let maxRetries: Int
     private let defaultHeaders: [String: String]
 
+    private static let defaultSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
+        return URLSession(configuration: config)
+    }()
+
     init(
         baseURL: URL,
-        session: URLSession = .shared,
+        session: URLSession = APIClient.defaultSession,
         maxRetries: Int = 3,
         defaultHeaders: [String: String] = [:]
     ) {

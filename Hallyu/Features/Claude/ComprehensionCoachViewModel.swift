@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class ComprehensionCoachViewModel {
 
@@ -69,6 +70,16 @@ final class ComprehensionCoachViewModel {
         learnerLevel: String,
         knownVocabulary: [String]
     ) async {
+        // Check tier before making API call
+        do {
+            try await claudeService.checkTierAllowed(tier: subscriptionTier)
+        } catch {
+            phase = .error("Daily interaction limit reached for your subscription tier. Upgrade to continue.")
+            return
+        }
+
+        // Resets to .loading regardless of current phase (including .error),
+        // so retrying from the error state works without extra cleanup.
         phase = .loading
 
         let context = ComprehensionContext(

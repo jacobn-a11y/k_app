@@ -1,6 +1,11 @@
 import Foundation
 
-/// Half-life regression SRS engine implementing spaced repetition scheduling.
+/// Exponential decay SRS engine with half-life scheduling.
+///
+/// Uses P(recall) = 2^(-elapsed / halfLife) to predict memory strength.
+/// The half-life grows on correct answers (multiplied by `growthFactor`) and
+/// shrinks on incorrect answers (multiplied by `decayFactor`). Fast correct
+/// responses receive an additional bonus, nudging the next review further out.
 final class SRSEngine: SRSEngineProtocol, @unchecked Sendable {
     // Configuration
     let initialHalfLife: Double = 1.0  // days

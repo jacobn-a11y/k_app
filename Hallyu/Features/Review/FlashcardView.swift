@@ -23,6 +23,8 @@ struct FlashcardView: View {
         .onTapGesture {
             onTap?()
         }
+        .accessibilityHint("Double tap to flip card")
+        .accessibilityAddTraits(.isButton)
         .onChange(of: isFlipped) { _, flipped in
             withAnimation(.easeInOut(duration: 0.4)) {
                 rotation = flipped ? 180 : 0
