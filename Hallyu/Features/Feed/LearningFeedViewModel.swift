@@ -13,15 +13,25 @@ final class LearningFeedViewModel {
     private(set) var totalXP: Int = 0
     private(set) var comboMultiplier: Int = 1
     private(set) var consecutiveCorrect: Int = 0
+    private(set) var bestStreak: Int = 0
     private(set) var cardsCompleted: Int = 0
+    private(set) var wordsEncountered: Int = 0
     private(set) var goalReached: Bool = false
     private(set) var sessionStartedAt: Date = Date()
+    private(set) var isBonusRound: Bool = false
 
     var showPlanSheet: Bool = false
+    var showSessionSummary: Bool = false
 
     // XP animation state
     private(set) var lastXPGain: Int = 0
     private(set) var showXPAnimation: Bool = false
+
+    // Streak celebration state
+    private(set) var streakCelebrationThreshold: Int?
+
+    // "Almost done" overlay
+    private(set) var almostDoneCount: Int?
 
     // MARK: - Dependencies
 
@@ -35,6 +45,22 @@ final class LearningFeedViewModel {
     private var dueReviewItems: [ReviewItem] = []
     private var availableMedia: [MediaContent] = []
     private var skillMasteries: [SkillMastery] = []
+
+    // MARK: - Retry Scheduling
+
+    /// Cards queued for retry: (original card content, insert-after-N-more-cards)
+    private var retryQueue: [(content: FeedCardContent, countdown: Int)] = []
+
+    // MARK: - Milestone Tracking
+
+    /// Next milestone insertion point (variable interval: 4-7 cards apart)
+    private var nextMilestoneAt: Int = 0
+    private var totalCorrectAnswers: Int = 0
+
+    // MARK: - Goal Tracking
+
+    /// Number of cards that constitute the daily goal (estimated)
+    private var dailyGoalCardCount: Int = 0
 
     // MARK: - XP Constants
 
@@ -56,7 +82,8 @@ final class LearningFeedViewModel {
         profile: LearnerProfile,
         reviewItems: [ReviewItem],
         mediaContent: [MediaContent],
-        skillMasteries: [SkillMastery]
+        skillMasteries: [SkillMastery],
+        currentStreakDays: Int = 0
     ) {
         isLoading = true
         self.profile = profile
@@ -70,6 +97,17 @@ final class LearningFeedViewModel {
             limit: 50
         )
 
+        // Estimate daily goal card count (~20s per card)
+        dailyGoalCardCount = max(1, profile.dailyGoalMinutes * 3)
+
+        // Schedule first milestone at a variable interval
+        nextMilestoneAt = Int.random(in: 4...7)
+
+        // Insert streak card at position 0 if active streak
+        if currentStreakDays > 0 {
+            cards.append(FeedCard(content: .streak(days: currentStreakDays)))
+        }
+
         let initialCards = cardGenerator.generateCards(
             profile: profile,
             dueReviewItems: dueReviewItems,
@@ -78,7 +116,7 @@ final class LearningFeedViewModel {
             existingCardCount: 0
         )
 
-        cards = initialCards
+        cards.append(contentsOf: initialCards)
         sessionStartedAt = Date()
         isLoading = false
     }
@@ -96,6 +134,11 @@ final class LearningFeedViewModel {
         cards[index].isCompleted = true
         cardsCompleted += 1
 
+        // Track words for vocab cards
+        if case .vocab = cards[index].content {
+            wordsEncountered += 1
+        }
+
         // Calculate XP
         let isPerfect = (score ?? 0) >= 0.9
         let isInteractive = cards[index].isInteractive
@@ -104,13 +147,17 @@ final class LearningFeedViewModel {
         if isPerfect {
             xpGain = Self.xpPerfect
             consecutiveCorrect += 1
+            totalCorrectAnswers += 1
             comboMultiplier = min(consecutiveCorrect + 1, Self.maxCombo)
         } else if isInteractive && (score ?? 0) > 0 {
             xpGain = Self.xpComplete
             consecutiveCorrect += 1
+            totalCorrectAnswers += 1
             comboMultiplier = min(consecutiveCorrect + 1, Self.maxCombo)
         } else if isInteractive && score == 0 {
             xpGain = Self.xpView
+            // Schedule retry for wrong answers
+            scheduleRetry(for: cards[index])
             consecutiveCorrect = 0
             comboMultiplier = 1
         } else {
@@ -123,12 +170,29 @@ final class LearningFeedViewModel {
         cards[index].xpAwarded = xpGain
         totalXP += xpGain
 
+        // Track best streak
+        if consecutiveCorrect > bestStreak {
+            bestStreak = consecutiveCorrect
+        }
+
         // Trigger XP animation
         lastXPGain = xpGain
         showXPAnimation = true
 
+        // Check streak celebration thresholds (3, 5, 10, 15, 20...)
+        checkStreakCelebration()
+
+        // Check milestone injection (variable interval)
+        checkMilestoneInjection(afterIndex: index)
+
+        // Process retry queue
+        processRetryQueue(afterIndex: index)
+
         // Check daily goal
-        checkGoalReached()
+        checkGoalReached(afterIndex: index)
+
+        // Check "almost done" overlay
+        checkAlmostDone()
 
         // Load more cards if approaching the end
         loadMoreIfNeeded(currentIndex: index)
@@ -146,13 +210,21 @@ final class LearningFeedViewModel {
 
     /// Skip a card without completing it
     func skipCard(id cardId: UUID) {
-        // Don't mark as completed, just let the user scroll past
         consecutiveCorrect = 0
         comboMultiplier = 1
+        streakCelebrationThreshold = nil
     }
 
     func dismissXPAnimation() {
         showXPAnimation = false
+    }
+
+    func dismissStreakCelebration() {
+        streakCelebrationThreshold = nil
+    }
+
+    func dismissAlmostDone() {
+        almostDoneCount = nil
     }
 
     // MARK: - Session
@@ -168,10 +240,14 @@ final class LearningFeedViewModel {
             sessionType: "feed",
             durationSeconds: sessionDurationSeconds,
             itemsStudied: cardsCompleted,
-            itemsCorrect: consecutiveCorrect, // approximation
+            itemsCorrect: totalCorrectAnswers,
             startedAt: sessionStartedAt,
             completedAt: Date()
         )
+    }
+
+    func requestSessionSummary() {
+        showSessionSummary = true
     }
 
     // MARK: - Daily Goal
@@ -186,24 +262,146 @@ final class LearningFeedViewModel {
         return min(1.0, estimatedMinutesSpent / Double(profile.dailyGoalMinutes))
     }
 
-    // MARK: - Private
+    // MARK: - Retry Scheduling
 
-    private func checkGoalReached() {
-        guard let profile else { return }
-        if !goalReached && estimatedMinutesSpent >= Double(profile.dailyGoalMinutes) {
-            goalReached = true
-            // Insert celebration card after the current position
-            let celebrationCard = FeedCard(
-                content: .goalReached(xpEarned: totalXP, cardsCompleted: cardsCompleted)
-            )
-            // Find first uncompleted card and insert before it
-            if let insertIndex = cards.firstIndex(where: { !$0.isCompleted }) {
-                cards.insert(celebrationCard, at: insertIndex + 1)
+    private func scheduleRetry(for card: FeedCard) {
+        // Don't retry non-interactive or meta cards
+        switch card.content {
+        case .goalReached, .milestone, .streak, .culturalMoment:
+            return
+        default:
+            break
+        }
+        // Insert retry 3-5 cards later
+        let delay = Int.random(in: 3...5)
+        retryQueue.append((content: card.content, countdown: delay))
+    }
+
+    private func processRetryQueue(afterIndex: Int) {
+        var toInsert: [FeedCardContent] = []
+        retryQueue = retryQueue.compactMap { entry in
+            var entry = entry
+            entry.countdown -= 1
+            if entry.countdown <= 0 {
+                toInsert.append(entry.content)
+                return nil
+            }
+            return entry
+        }
+
+        // Insert retry cards after the next uncompleted card
+        for content in toInsert {
+            let retryCard = FeedCard(content: content)
+            if let insertIdx = cards[(afterIndex + 1)...].firstIndex(where: { !$0.isCompleted }) {
+                cards.insert(retryCard, at: insertIdx + 1)
             } else {
-                cards.append(celebrationCard)
+                cards.append(retryCard)
             }
         }
     }
+
+    // MARK: - Streak Celebrations
+
+    private static let streakThresholds = [3, 5, 10, 15, 20, 30, 50]
+
+    private func checkStreakCelebration() {
+        if Self.streakThresholds.contains(consecutiveCorrect) {
+            streakCelebrationThreshold = consecutiveCorrect
+
+            // Also inject a milestone card for significant streaks
+            if consecutiveCorrect >= 5 {
+                let milestoneCard = FeedCard(content: .milestone(info: MilestoneInfo(
+                    type: .streakInSession(consecutiveCorrect),
+                    message: "\(consecutiveCorrect) correct in a row!"
+                )))
+                if let insertIdx = cards.firstIndex(where: { !$0.isCompleted }) {
+                    cards.insert(milestoneCard, at: insertIdx + 1)
+                } else {
+                    cards.append(milestoneCard)
+                }
+            }
+        }
+    }
+
+    // MARK: - Variable-Interval Milestones
+
+    private func checkMilestoneInjection(afterIndex: Int) {
+        guard cardsCompleted >= nextMilestoneAt else { return }
+
+        // Determine what kind of milestone to show
+        let milestoneInfo: MilestoneInfo
+        if wordsEncountered > 0 && wordsEncountered % 5 == 0 {
+            milestoneInfo = MilestoneInfo(
+                type: .wordsLearned(wordsEncountered),
+                message: "You've reviewed \(wordsEncountered) words!"
+            )
+        } else if cardsCompleted % 10 == 0 {
+            milestoneInfo = MilestoneInfo(
+                type: .cardsCompleted(cardsCompleted),
+                message: "\(cardsCompleted) cards completed!"
+            )
+        } else {
+            let minutes = Int(estimatedMinutesSpent)
+            if minutes > 0 {
+                milestoneInfo = MilestoneInfo(
+                    type: .minutesStudied(minutes),
+                    message: "\(minutes) minutes of study!"
+                )
+            } else {
+                milestoneInfo = MilestoneInfo(
+                    type: .cardsCompleted(cardsCompleted),
+                    message: "\(cardsCompleted) cards done!"
+                )
+            }
+        }
+
+        let milestoneCard = FeedCard(content: .milestone(info: milestoneInfo))
+        if let insertIdx = cards[(afterIndex + 1)...].firstIndex(where: { !$0.isCompleted }) {
+            cards.insert(milestoneCard, at: insertIdx)
+        } else {
+            cards.append(milestoneCard)
+        }
+
+        // Schedule next milestone at variable interval (4-7 cards)
+        nextMilestoneAt = cardsCompleted + Int.random(in: 4...7)
+    }
+
+    // MARK: - Goal Check + Bonus Round
+
+    private func checkGoalReached(afterIndex: Int) {
+        guard let profile else { return }
+        if !goalReached && estimatedMinutesSpent >= Double(profile.dailyGoalMinutes) {
+            goalReached = true
+            // Insert celebration card
+            let celebrationCard = FeedCard(
+                content: .goalReached(xpEarned: totalXP, cardsCompleted: cardsCompleted)
+            )
+            if let insertIdx = cards[(afterIndex + 1)...].firstIndex(where: { !$0.isCompleted }) {
+                cards.insert(celebrationCard, at: insertIdx)
+            } else {
+                cards.append(celebrationCard)
+            }
+            // Enter bonus round — feed continues seamlessly
+            isBonusRound = true
+        }
+    }
+
+    // MARK: - "Almost Done" Overlay
+
+    private func checkAlmostDone() {
+        guard !goalReached else {
+            almostDoneCount = nil
+            return
+        }
+        let remaining = dailyGoalCardCount - cardsCompleted
+        if remaining > 0 && remaining <= 3 {
+            almostDoneCount = remaining
+        } else {
+            almostDoneCount = nil
+        }
+    }
+
+    // MARK: - Load More
 
     private func loadMoreIfNeeded(currentIndex: Int) {
         let remainingCards = cards[currentIndex...].filter { !$0.isCompleted }.count
@@ -218,6 +416,8 @@ final class LearningFeedViewModel {
             cards.append(contentsOf: moreCards)
         }
     }
+
+    // MARK: - Mastery Updates
 
     private func updateMastery(for card: FeedCard, score: Double, profile: LearnerProfile) {
         Task {
@@ -254,7 +454,15 @@ final class LearningFeedViewModel {
                     wasCorrect: score >= 0.7,
                     responseTime: 0
                 )
-            case .mediaClip, .goalReached:
+            case .listenAndChoose(let info):
+                try? await learnerModel.updateMastery(
+                    userId: profile.userId,
+                    skillType: "listening",
+                    skillId: info.audioSegmentKr,
+                    wasCorrect: score >= 0.7,
+                    responseTime: 0
+                )
+            case .mediaClip, .goalReached, .culturalMoment, .milestone, .streak:
                 break
             }
         }

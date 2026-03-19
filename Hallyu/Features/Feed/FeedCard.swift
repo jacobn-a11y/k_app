@@ -18,6 +18,14 @@ enum FeedCardContent: Equatable {
     case grammarSnap(quiz: GrammarSnapInfo)
     /// Celebration card when daily goal is reached
     case goalReached(xpEarned: Int, cardsCompleted: Int)
+    /// Cultural fact from media content
+    case culturalMoment(info: CulturalMomentInfo)
+    /// Listen to audio and choose the correct meaning
+    case listenAndChoose(quiz: ListenAndChooseInfo)
+    /// Milestone celebration (variable interval)
+    case milestone(info: MilestoneInfo)
+    /// Streak celebration at session start or streak thresholds
+    case streak(days: Int)
 }
 
 struct FeedCard: Identifiable, Equatable {
@@ -36,9 +44,9 @@ struct FeedCard: Identifiable, Equatable {
     /// Whether this card requires user interaction to advance (vs auto-advance)
     var isInteractive: Bool {
         switch content {
-        case .jamoWatch, .mediaClip, .goalReached:
+        case .jamoWatch, .mediaClip, .goalReached, .culturalMoment, .milestone, .streak:
             return false
-        case .jamoTrace, .jamoSpeak, .vocab, .pronunciation, .grammarSnap:
+        case .jamoTrace, .jamoSpeak, .vocab, .pronunciation, .grammarSnap, .listenAndChoose:
             return true
         }
     }
@@ -48,15 +56,15 @@ struct FeedCard: Identifiable, Equatable {
         switch content {
         case .jamoWatch, .jamoTrace, .jamoSpeak:
             return .hangulLesson
-        case .mediaClip:
+        case .mediaClip, .culturalMoment:
             return .mediaLesson
         case .vocab:
             return .srsReview
         case .pronunciation:
             return .pronunciationPractice
-        case .grammarSnap:
+        case .grammarSnap, .listenAndChoose:
             return .grammarReview
-        case .goalReached:
+        case .goalReached, .milestone, .streak:
             return nil
         }
     }
@@ -93,4 +101,34 @@ struct GrammarSnapInfo: Equatable {
     let translation: String
     let options: [String]
     let correctOptionIndex: Int
+}
+
+struct CulturalMomentInfo: Equatable {
+    let title: String
+    let body: String
+    let mediaSource: String
+    let mediaContentType: String
+}
+
+struct ListenAndChooseInfo: Equatable {
+    let audioSegmentKr: String
+    let audioSegmentEn: String
+    let mediaUrl: String
+    let startMs: Int
+    let endMs: Int
+    let options: [String]
+    let correctOptionIndex: Int
+    let sourceTitle: String
+}
+
+enum MilestoneType: Equatable {
+    case wordsLearned(Int)
+    case cardsCompleted(Int)
+    case minutesStudied(Int)
+    case streakInSession(Int)
+}
+
+struct MilestoneInfo: Equatable {
+    let type: MilestoneType
+    let message: String
 }

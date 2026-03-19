@@ -16,6 +16,10 @@ struct FeedCardGenerator {
     static let pronunciationInterval = 5
     /// Insert grammar card every N cards
     static let grammarInterval = 8
+    /// Insert listen-and-choose card every N cards
+    static let listenAndChooseInterval = 7
+    /// Insert cultural moment every N cards
+    static let culturalMomentInterval = 12
     /// Pronunciation mastery threshold for adding pronunciation cards
     static let pronunciationThreshold: Double = 0.4
 
@@ -58,7 +62,6 @@ struct FeedCardGenerator {
         let allJamo = beginnerJamoSequence()
 
         // Determine which jamo to start from based on existing cards
-        let jamoPerCycle = 1 // cards per jamo: watch + trace + speak
         let cardsPerCycle = 3 + 1 // 3 jamo cards + 1 media teaser
         let startCycle = existingCardCount / cardsPerCycle
         let startJamoIndex = startCycle
@@ -86,6 +89,13 @@ struct FeedCardGenerator {
                 let item = dueReviewItems[itemIndex]
                 cards.append(FeedCard(content: .vocab(item: vocabCardInfo(from: item))))
                 vocabInsertCounter = 0
+            }
+
+            // Insert cultural moment every 4 jamo characters
+            if jamoOffset > 0 && jamoOffset % 4 == 0 {
+                if let cultural = culturalMomentFromMedia(availableMedia, profile: profile) {
+                    cards.append(FeedCard(content: .culturalMoment(info: cultural)))
+                }
             }
         }
 
@@ -128,11 +138,29 @@ struct FeedCardGenerator {
                 }
             }
 
+            // Listen-and-choose card every 7th position
+            if position % Self.listenAndChooseInterval == 0 {
+                if let clip = mediaSegments[safe: mediaIndex] {
+                    let quiz = makeListenAndChoose(from: clip, allMedia: availableMedia, profile: profile)
+                    cards.append(FeedCard(content: .listenAndChoose(quiz: quiz)))
+                    mediaIndex += 1
+                    continue
+                }
+            }
+
             // Grammar card every 8th position
             if position % Self.grammarInterval == 0 {
                 let grammarInfo = makeGrammarSnap(profile: profile)
                 cards.append(FeedCard(content: .grammarSnap(quiz: grammarInfo)))
                 continue
+            }
+
+            // Cultural moment every 12th position
+            if position % Self.culturalMomentInterval == 0 {
+                if let cultural = culturalMomentFromMedia(availableMedia, profile: profile) {
+                    cards.append(FeedCard(content: .culturalMoment(info: cultural)))
+                    continue
+                }
             }
 
             // Default: media clip
@@ -152,7 +180,6 @@ struct FeedCardGenerator {
     // MARK: - Helpers
 
     private func beginnerJamoSequence() -> [JamoEntry] {
-        // Flatten all lesson groups into a sequence of jamo entries
         HangulData.lessonGroups.flatMap { group in
             group.jamoIds.compactMap { HangulData.jamo(for: $0) }
         }
@@ -235,6 +262,79 @@ struct FeedCardGenerator {
             translation: selected.translation,
             options: selected.options,
             correctOptionIndex: selected.correct
+        )
+    }
+
+    private func makeListenAndChoose(from clip: MediaClipInfo, allMedia: [MediaContent], profile: LearnerProfile) -> ListenAndChooseInfo {
+        // Generate distractors from other segments
+        let correctAnswer = clip.segment.textEn
+        var distractors: [String] = []
+
+        for content in allMedia {
+            for segment in content.transcriptSegments where segment.textEn != correctAnswer {
+                distractors.append(segment.textEn)
+                if distractors.count >= 3 { break }
+            }
+            if distractors.count >= 3 { break }
+        }
+
+        // Pad with generic distractors if not enough
+        let genericDistractors = ["Thank you", "Hello, how are you?", "I don't understand", "See you later", "Where is the station?", "It's very good"]
+        while distractors.count < 3 {
+            let generic = genericDistractors[distractors.count % genericDistractors.count]
+            if generic != correctAnswer {
+                distractors.append(generic)
+            }
+        }
+
+        // Build options with correct answer at random position
+        var options = Array(distractors.prefix(3))
+        let correctIndex = Int.random(in: 0...3)
+        options.insert(correctAnswer, at: correctIndex)
+
+        return ListenAndChooseInfo(
+            audioSegmentKr: clip.segment.textKr,
+            audioSegmentEn: clip.segment.textEn,
+            mediaUrl: clip.mediaUrl,
+            startMs: clip.segment.startMs,
+            endMs: clip.segment.endMs,
+            options: options,
+            correctOptionIndex: correctIndex,
+            sourceTitle: clip.title
+        )
+    }
+
+    private func culturalMomentFromMedia(_ media: [MediaContent], profile: LearnerProfile) -> CulturalMomentInfo? {
+        // Find media with cultural notes
+        let withNotes = media.filter { !$0.culturalNotes.isEmpty }
+        guard let content = withNotes.randomElement() else {
+            // Fallback built-in cultural facts
+            return builtInCulturalMoment()
+        }
+
+        return CulturalMomentInfo(
+            title: "Korean Culture",
+            body: content.culturalNotes,
+            mediaSource: content.title,
+            mediaContentType: content.contentType
+        )
+    }
+
+    private func builtInCulturalMoment() -> CulturalMomentInfo {
+        let facts: [(title: String, body: String)] = [
+            ("Age Matters", "In Korean culture, the first thing people often ask is your age. This determines the level of formality you should use when speaking — it's not rude, it's practical!"),
+            ("Honorific Speech", "Korean has 7 speech levels! The most common in daily life are 존댓말 (formal polite) and 반말 (casual). Using the wrong one can cause real social awkwardness."),
+            ("Kimchi Varieties", "There are over 200 types of kimchi in Korea! The most famous is baechu-kimchi (napa cabbage), but Koreans also make kimchi from radish, cucumber, and even perilla leaves."),
+            ("Soju Culture", "When someone older pours you a drink in Korea, you should hold your glass with both hands and turn slightly away when drinking. It's a sign of respect!"),
+            ("Korean Names", "In Korea, the family name comes first. About 45% of Koreans have one of just three surnames: Kim (김), Lee (이), or Park (박)."),
+            ("Fan Death", "Some Koreans believe sleeping with an electric fan on in a closed room can be fatal. Most modern Koreans laugh about it, but many still won't do it!"),
+        ]
+        let fact = facts.randomElement() ?? facts[0]
+        return CulturalMomentInfo(
+            title: fact.title,
+            body: fact.body,
+            mediaSource: "",
+            mediaContentType: ""
         )
     }
 

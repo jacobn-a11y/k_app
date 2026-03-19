@@ -6,30 +6,73 @@ struct FeedOverlayView: View {
     let goalProgress: Double
     let lastXPGain: Int
     let showXPAnimation: Bool
+    let isBonusRound: Bool
+    let almostDoneCount: Int?
+    let streakCelebration: Int?
     let onDismissXP: () -> Void
+    let onDismissStreak: () -> Void
+    let onDismissAlmostDone: () -> Void
     let onShowPlan: () -> Void
+    let onShowSummary: () -> Void
 
     var body: some View {
-        VStack {
-            // Top bar: XP counter + combo
-            topBar
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
+        ZStack {
+            VStack {
+                // Top bar: XP counter + combo
+                topBar
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
 
-            Spacer()
+                Spacer()
 
-            // Bottom: progress dots + plan button
-            bottomBar
-                .padding(.horizontal, 20)
-                .padding(.bottom, 16)
+                // "Almost done" overlay
+                if let remaining = almostDoneCount {
+                    almostDoneOverlay(remaining: remaining)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .padding(.bottom, 8)
+                }
+
+                // Bonus round label
+                if isBonusRound {
+                    bonusRoundLabel
+                        .padding(.bottom, 4)
+                }
+
+                // Bottom: progress dots + plan button
+                bottomBar
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+            }
+            .allowsHitTesting(true)
+
+            // Streak celebration toast
+            if let streak = streakCelebration {
+                streakCelebrationToast(streak: streak)
+                    .transition(.scale.combined(with: .opacity))
+            }
         }
-        .allowsHitTesting(true)
+        .animation(.spring(response: 0.4), value: almostDoneCount != nil)
+        .animation(.spring(response: 0.4), value: isBonusRound)
+        .animation(.spring(response: 0.3), value: streakCelebration)
     }
 
     // MARK: - Top Bar
 
     private var topBar: some View {
         HStack {
+            // Session summary button (pause)
+            Button {
+                onShowSummary()
+            } label: {
+                Image(systemName: "pause.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .accessibilityLabel("Pause and view session summary")
+            .frame(minWidth: 44, minHeight: 44)
+
             Spacer()
 
             HStack(spacing: 12) {
@@ -130,5 +173,72 @@ struct FeedOverlayView: View {
             }
             .accessibilityLabel("Daily goal progress: \(Int(goalProgress * 100)) percent")
         }
+    }
+
+    // MARK: - Almost Done Overlay
+
+    private func almostDoneOverlay(remaining: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "flag.fill")
+                .font(.caption)
+            Text("\(remaining) more to hit today's goal!")
+                .font(.subheadline)
+                .fontWeight(.medium)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.accentColor, in: Capsule())
+        .onAppear {
+            HapticManager.play(.light)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                withAnimation {
+                    onDismissAlmostDone()
+                }
+            }
+        }
+        .accessibilityLabel("\(remaining) cards remaining to reach today's goal")
+    }
+
+    // MARK: - Bonus Round Label
+
+    private var bonusRoundLabel: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "star.fill")
+                .font(.caption2)
+            Text("Bonus Round")
+                .font(.caption)
+                .fontWeight(.semibold)
+        }
+        .foregroundStyle(.yellow)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.yellow.opacity(0.15), in: Capsule())
+        .accessibilityLabel("Bonus round: extra practice beyond daily goal")
+    }
+
+    // MARK: - Streak Celebration Toast
+
+    private func streakCelebrationToast(streak: Int) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(.orange)
+
+            Text("\(streak) in a row!")
+                .font(.headline)
+                .fontWeight(.bold)
+        }
+        .padding(20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .onAppear {
+            HapticManager.play(.success)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    onDismissStreak()
+                }
+            }
+        }
+        .accessibilityLabel("\(streak) correct answers in a row! Great job!")
     }
 }

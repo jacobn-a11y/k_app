@@ -23,7 +23,18 @@ struct LearningFeedView: View {
                 ProgressView()
             }
         }
-        .onAppear { loadFeed() }
+        .onAppear {
+            loadFeed()
+            appState.feedSessionActive = true
+        }
+        .onDisappear {
+            appState.feedSessionActive = false
+            // Persist study session on exit
+            if let vm = viewModel, let session = vm.createStudySession() {
+                modelContext.insert(session)
+                try? modelContext.save()
+            }
+        }
     }
 
     // MARK: - Feed Content
@@ -61,8 +72,14 @@ struct LearningFeedView: View {
                 goalProgress: vm.goalProgress,
                 lastXPGain: vm.lastXPGain,
                 showXPAnimation: vm.showXPAnimation,
+                isBonusRound: vm.isBonusRound,
+                almostDoneCount: vm.almostDoneCount,
+                streakCelebration: vm.streakCelebrationThreshold,
                 onDismissXP: { vm.dismissXPAnimation() },
-                onShowPlan: { vm.showPlanSheet = true }
+                onDismissStreak: { vm.dismissStreakCelebration() },
+                onDismissAlmostDone: { vm.dismissAlmostDone() },
+                onShowPlan: { vm.showPlanSheet = true },
+                onShowSummary: { vm.requestSessionSummary() }
             )
         }
         .sheet(isPresented: Binding(
@@ -80,6 +97,19 @@ struct LearningFeedView: View {
                             .padding()
                     }
                 }
+        }
+        .sheet(isPresented: Binding(
+            get: { vm.showSessionSummary },
+            set: { vm.showSessionSummary = $0 }
+        )) {
+            SessionSummaryView(
+                cardsCompleted: vm.cardsCompleted,
+                totalXP: vm.totalXP,
+                sessionDurationSeconds: vm.sessionDurationSeconds,
+                consecutiveCorrect: vm.bestStreak,
+                goalReached: vm.goalReached,
+                onDismiss: { vm.showSessionSummary = false }
+            )
         }
     }
 
@@ -115,14 +145,54 @@ struct LearningFeedView: View {
         let skillDescriptor = FetchDescriptor<SkillMastery>()
         let skills = (try? modelContext.fetch(skillDescriptor)) ?? []
 
+        // Calculate streak days from study sessions
+        let streakDays = calculateStreakDays(userId: profile.userId)
+
         vm.loadFeed(
             profile: profile,
             reviewItems: reviewItems,
             mediaContent: media,
-            skillMasteries: skills
+            skillMasteries: skills,
+            currentStreakDays: streakDays
         )
 
         viewModel = vm
+    }
+
+    private func calculateStreakDays(userId: UUID) -> Int {
+        let descriptor = FetchDescriptor<StudySession>(
+            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
+        )
+        guard let sessions = try? modelContext.fetch(descriptor) else { return 0 }
+        let userSessions = sessions.filter { $0.userId == userId }
+
+        var streakDays = 0
+        let calendar = Calendar.current
+        var checkDate = calendar.startOfDay(for: Date())
+
+        for day in 0..<365 {
+            let dayStart = calendar.date(byAdding: .day, value: -day, to: checkDate) ?? checkDate
+            let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+
+            let hasSession = userSessions.contains { session in
+                session.startedAt >= dayStart && session.startedAt < dayEnd
+            }
+
+            if day == 0 {
+                // Today doesn't have to have a session yet (user is starting one now)
+                if hasSession { streakDays += 1 }
+                continue
+            }
+
+            if hasSession {
+                streakDays += 1
+            } else {
+                break
+            }
+            checkDate = dayStart
+        }
+
+        return streakDays
     }
 }
 
@@ -177,6 +247,14 @@ struct FeedCardContainerView: View {
             GrammarFeedCard(info: info, onComplete: { correct in onComplete(correct ? 1.0 : 0.0) })
         case .goalReached(let xp, let count):
             GoalReachedCard(xpEarned: xp, cardsCompleted: count)
+        case .culturalMoment(let info):
+            CulturalMomentCardView(info: info, onComplete: { onComplete(nil) })
+        case .listenAndChoose(let info):
+            ListenAndChooseCardView(info: info, services: services, onComplete: { correct in onComplete(correct ? 1.0 : 0.0) })
+        case .milestone(let info):
+            MilestoneCardView(info: info, onComplete: { onComplete(nil) })
+        case .streak(let days):
+            StreakCardView(days: days, onComplete: { onComplete(nil) })
         }
     }
 
