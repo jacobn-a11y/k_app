@@ -3,6 +3,7 @@ import Observation
 
 /// Orchestrates the end-to-end scaffolded media lesson flow.
 /// Steps: preTask -> firstListen -> secondListen -> comprehensionCheck -> vocabularyExtraction -> shadowing -> summary
+@MainActor
 @Observable
 final class MediaLessonViewModel {
 
@@ -258,13 +259,17 @@ final class MediaLessonViewModel {
 
         // Update learner model
         Task {
-            try? await learnerModel.updateMastery(
-                userId: userId,
-                skillType: "vocab_recognition",
-                skillId: word.id.uuidString,
-                wasCorrect: knewIt,
-                responseTime: responseTime
-            )
+            do {
+                try await learnerModel.updateMastery(
+                    userId: userId,
+                    skillType: "vocab_recognition",
+                    skillId: word.id.uuidString,
+                    wasCorrect: knewIt,
+                    responseTime: responseTime
+                )
+            } catch {
+                print("[MediaLesson] Failed to update mastery: \(error.localizedDescription)")
+            }
         }
 
         preTaskShowingAnswer = false
@@ -330,14 +335,19 @@ final class MediaLessonViewModel {
 
         // Update learner model
         let skillType = question.type == "comprehension" ? "listening" : "vocab_recognition"
+        let responseTime = Date().timeIntervalSince(stepStartTime)
         Task {
-            try? await learnerModel.updateMastery(
-                userId: userId,
-                skillType: skillType,
-                skillId: "\(content.id)_q\(comprehensionCurrentIndex)",
-                wasCorrect: isCorrect,
-                responseTime: 0
-            )
+            do {
+                try await learnerModel.updateMastery(
+                    userId: userId,
+                    skillType: skillType,
+                    skillId: "\(content.id)_q\(comprehensionCurrentIndex)",
+                    wasCorrect: isCorrect,
+                    responseTime: responseTime
+                )
+            } catch {
+                print("[MediaLesson] Failed to update comprehension mastery: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -402,13 +412,17 @@ final class MediaLessonViewModel {
 
         // Update learner model for pronunciation
         Task {
-            try? await learnerModel.updateMastery(
-                userId: userId,
-                skillType: "pronunciation",
-                skillId: shadowingSentences[shadowingCurrentIndex].id.uuidString,
-                wasCorrect: confidence >= 0.7,
-                responseTime: 0
-            )
+            do {
+                try await learnerModel.updateMastery(
+                    userId: userId,
+                    skillType: "pronunciation",
+                    skillId: shadowingSentences[shadowingCurrentIndex].id.uuidString,
+                    wasCorrect: confidence >= 0.7,
+                    responseTime: 0
+                )
+            } catch {
+                print("[MediaLesson] Failed to update pronunciation mastery: \(error.localizedDescription)")
+            }
         }
     }
 

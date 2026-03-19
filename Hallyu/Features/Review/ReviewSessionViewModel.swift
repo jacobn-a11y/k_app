@@ -1,12 +1,14 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class ReviewSessionViewModel {
 
     // MARK: - State
 
     private(set) var items: [ReviewItem]
+    private let originalItemCount: Int
     private(set) var currentIndex: Int = 0
     private(set) var isShowingAnswer: Bool = false
     private(set) var isSessionComplete: Bool = false
@@ -89,6 +91,7 @@ final class ReviewSessionViewModel {
 
     init(items: [ReviewItem], srsEngine: SRSEngineProtocol, learnerModel: LearnerModelServiceProtocol) {
         self.items = items
+        self.originalItemCount = items.count
         self.srsEngine = srsEngine
         self.learnerModel = learnerModel
         self.startTime = Date()
@@ -119,13 +122,18 @@ final class ReviewSessionViewModel {
 
         // Update learner model
         Task {
-            try? await learnerModel.updateMastery(
-                userId: item.userId,
-                skillType: item.itemType,
-                skillId: item.itemId.uuidString,
-                wasCorrect: wasCorrect,
-                responseTime: responseTime
-            )
+            do {
+                try await learnerModel.updateMastery(
+                    userId: item.userId,
+                    skillType: item.itemType,
+                    skillId: item.itemId.uuidString,
+                    wasCorrect: wasCorrect,
+                    responseTime: responseTime
+                )
+            } catch {
+                // Log but don't crash — mastery update is non-blocking
+                print("[ReviewSession] Failed to update mastery: \(error.localizedDescription)")
+            }
         }
 
         // Advance
@@ -142,8 +150,8 @@ final class ReviewSessionViewModel {
                 }
             )
 
-            if !retryItems.isEmpty && sessionResults.count < items.count * 2 {
-                // Add retry items to the end (but cap to avoid infinite loops)
+            if !retryItems.isEmpty && sessionResults.count < originalItemCount * 2 {
+                // Add retry items to the end (capped at 2x original to avoid infinite loops)
                 items.append(contentsOf: retryItems)
             } else {
                 isSessionComplete = true

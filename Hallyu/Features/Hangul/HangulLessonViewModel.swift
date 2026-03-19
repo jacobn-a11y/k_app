@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class HangulLessonViewModel {
     // MARK: - State
@@ -170,7 +171,11 @@ final class HangulLessonViewModel {
 
     func playPronunciation() async throws {
         guard let jamo = currentJamo else { return }
-        let audioURL = URL(fileURLWithPath: Bundle.main.path(forResource: jamo.audioFileRef, ofType: "m4a") ?? "")
+        guard let path = Bundle.main.path(forResource: jamo.audioFileRef, ofType: "m4a") else {
+            print("[HangulLesson] Audio file not found: \(jamo.audioFileRef)")
+            return
+        }
+        let audioURL = URL(fileURLWithPath: path)
         try await audioService.playAudio(url: audioURL)
     }
 

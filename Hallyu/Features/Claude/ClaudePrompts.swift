@@ -71,14 +71,31 @@ enum ClaudePrompts {
         Respond in valid JSON matching the requested format.
         """
 
+    // MARK: - Input Sanitization
+
+    /// Sanitize user-provided input to prevent prompt injection
+    private static func sanitize(_ input: String) -> String {
+        input
+            .replacingOccurrences(of: "[SYSTEM]", with: "")
+            .replacingOccurrences(of: "[INSTRUCTION]", with: "")
+            .replacingOccurrences(of: "\\n\\nHuman:", with: "")
+            .replacingOccurrences(of: "\\n\\nAssistant:", with: "")
+            .prefix(2000)
+            .description
+    }
+
     // MARK: - User Prompts
 
     static func comprehensionPrompt(context: ComprehensionContext, query: String) -> String {
-        """
-        Media: "\(context.mediaTitle)"
-        Transcript context: "\(context.transcript)"
-        Target word/phrase: "\(context.targetWord)"
-        Learner question: "\(query)"
+        let safeTranscript = sanitize(context.transcript)
+        let safeQuery = sanitize(query)
+        let safeWord = sanitize(context.targetWord)
+        let safeTitle = sanitize(context.mediaTitle)
+        return """
+        Media: "\(safeTitle)"
+        Transcript context: "\(safeTranscript)"
+        Target word/phrase: "\(safeWord)"
+        Learner question: "\(safeQuery)"
         Learner level: \(context.learnerLevel)
         Known vocabulary: \(context.knownVocabulary.prefix(20).joined(separator: ", "))
 
@@ -110,9 +127,11 @@ enum ClaudePrompts {
     }
 
     static func pronunciationPrompt(transcript: String, target: String) -> String {
-        """
-        The learner tried to say: "\(target)"
-        Speech recognition heard: "\(transcript)"
+        let safeTranscript = sanitize(transcript)
+        let safeTarget = sanitize(target)
+        return """
+        The learner tried to say: "\(safeTarget)"
+        Speech recognition heard: "\(safeTranscript)"
 
         Provide a JSON response with these fields:
         {
@@ -145,9 +164,11 @@ enum ClaudePrompts {
     }
 
     static func grammarPrompt(pattern: String, context: String) -> String {
-        """
-        Grammar pattern: "\(pattern)"
-        Media context: "\(context)"
+        let safePattern = sanitize(pattern)
+        let safeContext = sanitize(context)
+        return """
+        Grammar pattern: "\(safePattern)"
+        Media context: "\(safeContext)"
 
         Provide a JSON response with these fields:
         {
@@ -224,9 +245,11 @@ enum ClaudePrompts {
     }
 
     static func culturalContextPrompt(moment: String, mediaContext: String) -> String {
-        """
-        Confusing cultural moment: "\(moment)"
-        Media context: "\(mediaContext)"
+        let safeMoment = sanitize(moment)
+        let safeContext = sanitize(mediaContext)
+        return """
+        Confusing cultural moment: "\(safeMoment)"
+        Media context: "\(safeContext)"
 
         Provide a JSON response with these fields:
         {

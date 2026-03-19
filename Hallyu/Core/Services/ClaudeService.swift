@@ -1,4 +1,5 @@
 import Foundation
+import CommonCrypto
 
 actor ClaudeService: ClaudeServiceProtocol {
     private let apiClient: APIClient
@@ -244,12 +245,13 @@ actor ResponseCache {
 
     static func key(for role: String, context: String) -> String {
         let input = "\(role)_\(context)"
-        // Simple hash for cache key
-        var hash: UInt64 = 5381
-        for byte in input.utf8 {
-            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+        // SHA-256 hash for cache key to avoid collisions
+        let data = input.data(using: .utf8) ?? Data()
+        var hash = [UInt8](repeating: 0, count: 32)
+        _ = data.withUnsafeBytes { buffer in
+            CC_SHA256(buffer.baseAddress, CC_LONG(buffer.count), &hash)
         }
-        return String(hash)
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
 
     func get<T: Decodable>(for key: String) -> T? {
@@ -271,6 +273,10 @@ actor ResponseCache {
 
     var count: Int {
         cache.count
+    }
+
+    var isEmpty: Bool {
+        cache.isEmpty
     }
 
     func purgeExpired() {

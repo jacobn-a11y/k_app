@@ -17,7 +17,14 @@ struct OnboardingView: View {
             // Step content
             TabView(selection: Binding(
                 get: { viewModel.currentStep },
-                set: { _ in }
+                set: { newStep in
+                    // Allow swiping only to adjacent steps
+                    if newStep.rawValue == viewModel.currentStep.rawValue + 1 && viewModel.canProceed {
+                        viewModel.advance()
+                    } else if newStep.rawValue == viewModel.currentStep.rawValue - 1 {
+                        viewModel.goBack()
+                    }
+                }
             )) {
                 welcomeStep
                     .tag(OnboardingViewModel.Step.welcome)

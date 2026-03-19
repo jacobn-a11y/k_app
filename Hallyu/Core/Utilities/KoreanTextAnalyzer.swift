@@ -190,7 +190,7 @@ enum KoreanTextAnalyzer {
     /// Estimate vocabulary coverage for a learner given their known words
     static func estimateCoverage(text: String, knownWords: Set<String>) -> Double {
         let tokens = tokenize(text)
-        guard !tokens.isEmpty else { return 1.0 }
+        guard !tokens.isEmpty else { return 0.0 }
 
         let knownCount = tokens.filter { knownWords.contains($0) }.count
         return Double(knownCount) / Double(tokens.count)
