@@ -72,8 +72,10 @@ struct StrokeOrderView: View {
                 }
 
                 // Draw remaining strokes as guides
-                for i in (currentStroke + 1)..<strokePaths.count {
-                    drawStroke(context: context, stroke: strokePaths[i], scale: scale, progress: 1.0, color: .gray.opacity(0.2))
+                if currentStroke + 1 < strokePaths.count {
+                    for i in (currentStroke + 1)..<strokePaths.count {
+                        drawStroke(context: context, stroke: strokePaths[i], scale: scale, progress: 1.0, color: .gray.opacity(0.2))
+                    }
                 }
             }
             .frame(width: 200, height: 200)
