@@ -72,6 +72,7 @@ final class MockClaudeService: ClaudeServiceProtocol, @unchecked Sendable {
         CulturalContextResponse(
             explanation: "Mock cultural context",
             socialDynamics: nil,
+            honorificNote: nil,
             historicalContext: nil,
             relatedMedia: []
         )

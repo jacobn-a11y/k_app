@@ -29,6 +29,7 @@ enum ClaudePrompts {
         - Provide articulatory tips (tongue position, lip shape, airflow)
         - Reference minimal pairs to highlight the distinction
         - Be encouraging while being precise about errors
+        - Suggest a focused drill sequence for recurring errors
 
         Respond in valid JSON matching the requested format.
         """
@@ -52,6 +53,7 @@ enum ClaudePrompts {
         - Include fill-in-the-blank, comprehension, and production exercises
         - Match the learner's current level
         - Use context from the media content
+        - Generate 2-3 fill-in-the-blank, 1 comprehension, and 1 production item
 
         Respond in valid JSON as an array of practice items.
         """
@@ -91,6 +93,22 @@ enum ClaudePrompts {
         """
     }
 
+    static func comprehensionRetrievalPrompt(targetWord: String, learnerLevel: String) -> String {
+        """
+        The learner has tapped on the word/phrase: "\(targetWord)"
+        Learner level: \(learnerLevel)
+
+        Before explaining, ask the learner what they think this word means. \
+        Generate a brief, encouraging retrieval prompt.
+
+        Provide a JSON response:
+        {
+            "retrievalPrompt": "What do you think ... means? (encouraging hint)",
+            "hintLevel": "none|mild|strong"
+        }
+        """
+    }
+
     static func pronunciationPrompt(transcript: String, target: String) -> String {
         """
         The learner tried to say: "\(target)"
@@ -101,7 +119,27 @@ enum ClaudePrompts {
             "isCorrect": true/false,
             "feedback": "overall assessment",
             "articulatoryTip": "specific tip for improvement, or null if correct",
-            "similarSounds": ["list", "of", "similar", "sounds", "to", "practice"]
+            "similarSounds": ["list", "of", "similar", "sounds", "to", "practice"],
+            "drillSequence": ["word1", "word2", "word3"]
+        }
+        """
+    }
+
+    static func pronunciationDrillPrompt(errorPatterns: [String], learnerLevel: String) -> String {
+        """
+        The learner has recurring pronunciation errors with these patterns:
+        \(errorPatterns.joined(separator: ", "))
+        Learner level: \(learnerLevel)
+
+        Generate a focused drill sequence of 5 words that target these error patterns, \
+        progressing from easier to harder.
+
+        Provide a JSON response:
+        {
+            "drillWords": [
+                {"korean": "word", "romanization": "rom", "targetPhoneme": "phoneme"}
+            ],
+            "explanation": "why these words help with the specific errors"
         }
         """
     }
@@ -118,6 +156,53 @@ enum ClaudePrompts {
             "contrastiveExample": "example showing what changes with a different pattern",
             "retrievalQuestion": "question to check learner's understanding"
         }
+        """
+    }
+
+    static func grammarRetrievalPrompt(pattern: String, context: String, learnerLevel: String) -> String {
+        """
+        Grammar pattern found in media: "\(pattern)"
+        Context: "\(context)"
+        Learner level: \(learnerLevel)
+
+        Before explaining the grammar, ask the learner to identify the rule. \
+        Generate a retrieval-first question.
+
+        Provide a JSON response:
+        {
+            "retrievalQuestion": "Can you identify what grammar rule is at work here?",
+            "hint": "a subtle hint about the pattern"
+        }
+        """
+    }
+
+    static func practiceGenerationPrompt(
+        mediaTranscript: String,
+        vocabularyWords: [String],
+        grammarPatterns: [String],
+        learnerLevel: String
+    ) -> String {
+        """
+        Media segment transcript: "\(mediaTranscript)"
+        Key vocabulary: \(vocabularyWords.joined(separator: ", "))
+        Grammar patterns present: \(grammarPatterns.joined(separator: ", "))
+        Learner level: \(learnerLevel)
+
+        Generate practice items based on this media segment:
+        - 2-3 fill-in-the-blank exercises using vocabulary from the segment
+        - 1 comprehension question testing inference
+        - 1 production prompt (speaking practice using patterns from the segment)
+
+        Provide a JSON array of practice items:
+        [
+            {
+                "type": "fill_in_blank" | "comprehension" | "production",
+                "prompt": "the exercise prompt",
+                "correctAnswer": "the correct answer",
+                "alternatives": ["wrong1", "wrong2", "wrong3"],
+                "sourceContext": "relevant part of the transcript"
+            }
+        ]
         """
     }
 
@@ -147,9 +232,33 @@ enum ClaudePrompts {
         {
             "explanation": "clear explanation of the cultural context",
             "socialDynamics": "relevant social dynamics, or null",
+            "honorificNote": "honorific usage explanation, or null",
             "historicalContext": "historical background if relevant, or null",
             "relatedMedia": ["titles of related media that illustrate this concept"]
         }
         """
+    }
+}
+
+// MARK: - Retrieval-First Response Types
+
+struct RetrievalPromptResponse: Codable, Sendable {
+    let retrievalPrompt: String
+    let hintLevel: String // "none", "mild", "strong"
+}
+
+struct GrammarRetrievalResponse: Codable, Sendable {
+    let retrievalQuestion: String
+    let hint: String
+}
+
+struct PronunciationDrillResponse: Codable, Sendable {
+    let drillWords: [DrillWord]
+    let explanation: String
+
+    struct DrillWord: Codable, Sendable {
+        let korean: String
+        let romanization: String
+        let targetPhoneme: String
     }
 }

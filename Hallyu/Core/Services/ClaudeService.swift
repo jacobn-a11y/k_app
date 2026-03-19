@@ -3,8 +3,7 @@ import Foundation
 actor ClaudeService: ClaudeServiceProtocol {
     private let apiClient: APIClient
     private let cache: ResponseCache
-    private var dailyTokenCount: Int = 0
-    private var dailyTokenDate: Date = Date()
+    private let interactionTracker: InteractionTracker
 
     init(apiKey: String = AppEnvironment.current.claudeAPIKey) {
         self.apiClient = APIClient(
@@ -16,7 +15,28 @@ actor ClaudeService: ClaudeServiceProtocol {
             ]
         )
         self.cache = ResponseCache()
+        self.interactionTracker = InteractionTracker()
     }
+
+    // MARK: - Tier Enforcement
+
+    func checkTierAllowed(tier: AppState.SubscriptionTier) throws {
+        let limits = ClaudeTierLimits.limits(for: tier)
+        let todayCount = interactionTracker.todayCount
+        guard limits.isAllowed(currentCount: todayCount) else {
+            throw ClaudeServiceError.tierLimitReached
+        }
+    }
+
+    func getDailyInteractionCount() -> Int {
+        interactionTracker.todayCount
+    }
+
+    func getDailyInteractionLimit(for tier: AppState.SubscriptionTier) -> Int? {
+        ClaudeTierLimits.limits(for: tier).dailyLimit
+    }
+
+    // MARK: - Role 1: Comprehension Coach
 
     nonisolated func getComprehensionHelp(context: ComprehensionContext, query: String) async throws -> ComprehensionResponse {
         let prompt = ClaudePrompts.comprehensionPrompt(context: context, query: query)
@@ -28,19 +48,25 @@ actor ClaudeService: ClaudeServiceProtocol {
 
         let response: ComprehensionResponse = try await sendMessage(
             systemPrompt: ClaudePrompts.systemPrompt(learnerLevel: context.learnerLevel),
-            userMessage: prompt
+            userMessage: prompt,
+            role: .comprehension
         )
         await cache.set(response, for: cacheKey)
         return response
     }
 
+    // MARK: - Role 2: Pronunciation Tutor
+
     nonisolated func getPronunciationFeedback(transcript: String, target: String) async throws -> PronunciationFeedback {
         let prompt = ClaudePrompts.pronunciationPrompt(transcript: transcript, target: target)
         return try await sendMessage(
             systemPrompt: ClaudePrompts.pronunciationSystemPrompt,
-            userMessage: prompt
+            userMessage: prompt,
+            role: .pronunciation
         )
     }
+
+    // MARK: - Role 3: Grammar Explainer
 
     nonisolated func getGrammarExplanation(pattern: String, context: String) async throws -> GrammarExplanation {
         let prompt = ClaudePrompts.grammarPrompt(pattern: pattern, context: context)
@@ -52,19 +78,44 @@ actor ClaudeService: ClaudeServiceProtocol {
 
         let response: GrammarExplanation = try await sendMessage(
             systemPrompt: ClaudePrompts.grammarSystemPrompt,
-            userMessage: prompt
+            userMessage: prompt,
+            role: .grammar
         )
         await cache.set(response, for: cacheKey)
         return response
     }
 
+    // MARK: - Role 4: Content Adapter
+
     nonisolated func generatePracticeItems(mediaContentId: UUID, learnerLevel: String) async throws -> [PracticeItem] {
         let prompt = ClaudePrompts.practiceGenerationPrompt(mediaContentId: mediaContentId, learnerLevel: learnerLevel)
         return try await sendMessage(
             systemPrompt: ClaudePrompts.contentAdapterSystemPrompt,
-            userMessage: prompt
+            userMessage: prompt,
+            role: .contentAdapter
         )
     }
+
+    nonisolated func generateEnhancedPracticeItems(
+        mediaTranscript: String,
+        vocabularyWords: [String],
+        grammarPatterns: [String],
+        learnerLevel: String
+    ) async throws -> [EnhancedPracticeItem] {
+        let prompt = ClaudePrompts.practiceGenerationPrompt(
+            mediaTranscript: mediaTranscript,
+            vocabularyWords: vocabularyWords,
+            grammarPatterns: grammarPatterns,
+            learnerLevel: learnerLevel
+        )
+        return try await sendMessage(
+            systemPrompt: ClaudePrompts.contentAdapterSystemPrompt,
+            userMessage: prompt,
+            role: .contentAdapter
+        )
+    }
+
+    // MARK: - Role 5: Cultural Context
 
     nonisolated func getCulturalContext(moment: String, mediaContext: String) async throws -> CulturalContextResponse {
         let prompt = ClaudePrompts.culturalContextPrompt(moment: moment, mediaContext: mediaContext)
@@ -76,7 +127,8 @@ actor ClaudeService: ClaudeServiceProtocol {
 
         let response: CulturalContextResponse = try await sendMessage(
             systemPrompt: ClaudePrompts.culturalContextSystemPrompt,
-            userMessage: prompt
+            userMessage: prompt,
+            role: .cultural
         )
         await cache.set(response, for: cacheKey)
         return response
@@ -84,7 +136,7 @@ actor ClaudeService: ClaudeServiceProtocol {
 
     // MARK: - Private
 
-    private func sendMessage<T: Decodable>(systemPrompt: String, userMessage: String) async throws -> T {
+    private func sendMessage<T: Decodable>(systemPrompt: String, userMessage: String, role: ClaudeRole) async throws -> T {
         let requestBody = ClaudeAPIRequest(
             model: "claude-sonnet-4-20250514",
             maxTokens: 1024,
@@ -101,6 +153,13 @@ actor ClaudeService: ClaudeServiceProtocol {
         )
 
         let apiResponse: ClaudeAPIResponse = try await apiClient.send(request)
+
+        // Track interaction
+        await interactionTracker.recordInteraction(
+            role: role,
+            promptTokens: apiResponse.usage.inputTokens,
+            completionTokens: apiResponse.usage.outputTokens
+        )
 
         guard let textContent = apiResponse.content.first?.text else {
             throw ClaudeServiceError.emptyResponse
@@ -168,7 +227,7 @@ enum ClaudeServiceError: Error, LocalizedError {
         case .emptyResponse: return "Empty response from Claude"
         case .invalidResponseFormat: return "Invalid response format"
         case .rateLimitExceeded: return "Rate limit exceeded"
-        case .tierLimitReached: return "Daily interaction limit reached"
+        case .tierLimitReached: return "Daily interaction limit reached for your subscription tier"
         }
     }
 }
@@ -177,7 +236,11 @@ enum ClaudeServiceError: Error, LocalizedError {
 
 actor ResponseCache {
     private var cache: [String: (data: Data, timestamp: Date)] = [:]
-    private let ttl: TimeInterval = 3600 // 1 hour
+    private let ttl: TimeInterval
+
+    init(ttl: TimeInterval = 3600) {
+        self.ttl = ttl
+    }
 
     static func key(for role: String, context: String) -> String {
         let input = "\(role)_\(context)"
@@ -204,5 +267,83 @@ actor ResponseCache {
 
     func clear() {
         cache.removeAll()
+    }
+
+    var count: Int {
+        cache.count
+    }
+
+    func purgeExpired() {
+        let now = Date()
+        cache = cache.filter { now.timeIntervalSince($0.value.timestamp) < ttl }
+    }
+}
+
+// MARK: - Interaction Tracker
+
+actor InteractionTracker {
+    struct DailyRecord {
+        var date: Date
+        var interactions: [InteractionEntry] = []
+
+        var count: Int { interactions.count }
+
+        var totalPromptTokens: Int {
+            interactions.reduce(0) { $0 + $1.promptTokens }
+        }
+
+        var totalCompletionTokens: Int {
+            interactions.reduce(0) { $0 + $1.completionTokens }
+        }
+
+        func count(for role: ClaudeRole) -> Int {
+            interactions.filter { $0.role == role }.count
+        }
+    }
+
+    struct InteractionEntry {
+        let role: ClaudeRole
+        let promptTokens: Int
+        let completionTokens: Int
+        let timestamp: Date
+    }
+
+    private var dailyRecord: DailyRecord
+
+    init() {
+        self.dailyRecord = DailyRecord(date: Date())
+    }
+
+    var todayCount: Int {
+        ensureCurrentDay()
+        return dailyRecord.count
+    }
+
+    var totalTokensToday: Int {
+        ensureCurrentDay()
+        return dailyRecord.totalPromptTokens + dailyRecord.totalCompletionTokens
+    }
+
+    func count(for role: ClaudeRole) -> Int {
+        ensureCurrentDay()
+        return dailyRecord.count(for: role)
+    }
+
+    func recordInteraction(role: ClaudeRole, promptTokens: Int, completionTokens: Int) {
+        ensureCurrentDay()
+        let entry = InteractionEntry(
+            role: role,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens,
+            timestamp: Date()
+        )
+        dailyRecord.interactions.append(entry)
+    }
+
+    private func ensureCurrentDay() {
+        let calendar = Calendar.current
+        if !calendar.isDateInToday(dailyRecord.date) {
+            dailyRecord = DailyRecord(date: Date())
+        }
     }
 }
