@@ -58,6 +58,7 @@ final class PlacementTestViewModel {
     private var items: [PlacementItem] = []
     private var currentDifficultyIndex: Int = 1
     private var itemStartTime: Date = Date()
+    private let maxQuestionCount: Int = 12
 
     private static let levelOrder = ["pre-A1", "A1", "A2", "B1", "B2"]
 
@@ -135,12 +136,13 @@ final class PlacementTestViewModel {
 
     private func selectItems() {
         currentDifficultyIndex = levelIndex(for: "A1")
-        items = Self.itemPool.sorted { lhs, rhs in
+        let prioritized = Self.itemPool.sorted { lhs, rhs in
             let lhsPriority = itemPriority(lhs, targetDifficultyIndex: currentDifficultyIndex)
             let rhsPriority = itemPriority(rhs, targetDifficultyIndex: currentDifficultyIndex)
             if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
             return lhs.id.uuidString < rhs.id.uuidString
         }
+        items = Array(prioritized.prefix(maxQuestionCount))
         itemStartTime = Date()
     }
 
@@ -218,7 +220,7 @@ final class PlacementTestViewModel {
         let answeredItems = Array(items.prefix(currentItemIndex))
         let answeredIDs = Set(answeredItems.map(\.id))
         let remainingPool = Self.itemPool.filter { !answeredIDs.contains($0.id) }
-        let remainingSlots = items.count - currentItemIndex
+        let remainingSlots = min(maxQuestionCount, items.count) - currentItemIndex
 
         let sortedRemaining = remainingPool.sorted { lhs, rhs in
             let lhsPriority = itemPriority(lhs, targetDifficultyIndex: currentDifficultyIndex)
