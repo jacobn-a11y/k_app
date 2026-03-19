@@ -15,8 +15,8 @@ struct ContentView: View {
             )
 
             TabView {
-                Tab("Today", systemImage: "calendar") {
-                    DailyPlanView()
+                Tab("Today", systemImage: "play.circle.fill") {
+                    LearningFeedView()
                 }
                 Tab("Learn", systemImage: "book.fill") {
                     MediaLibraryView()
