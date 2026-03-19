@@ -74,9 +74,16 @@ actor APIClient {
     private let maxRetries: Int
     private let defaultHeaders: [String: String]
 
+    private static let defaultSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
+        return URLSession(configuration: config)
+    }()
+
     init(
         baseURL: URL,
-        session: URLSession = .shared,
+        session: URLSession = APIClient.defaultSession,
         maxRetries: Int = 3,
         defaultHeaders: [String: String] = [:]
     ) {

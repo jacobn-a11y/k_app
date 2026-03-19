@@ -78,9 +78,10 @@ struct StrokeOrderView: View {
             // Controls
             HStack(spacing: 20) {
                 Button(action: replay) {
-                    Label("Replay", systemImage: "arrow.counterclockwise")
+                    Label(isAnimating ? "Playing..." : "Replay", systemImage: "arrow.counterclockwise")
                 }
                 .buttonStyle(.bordered)
+                .disabled(isAnimating)
                 .accessibilityLabel("Replay stroke animation")
 
                 Picker("Speed", selection: $animationSpeed) {

@@ -16,6 +16,12 @@ struct PlacementTestView: View {
                     ProgressView()
                 }
             }
+            .onChange(of: viewModel.isComplete) { _, isComplete in
+                if isComplete {
+                    // Auto-save placement level as backup in case user leaves before confirming
+                    UserDefaults.standard.set(viewModel.estimatedLevel, forKey: "placementTestResult")
+                }
+            }
             .navigationTitle("Placement Test")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

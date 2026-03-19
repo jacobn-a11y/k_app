@@ -67,6 +67,10 @@ final class LearnerProfile: Codable {
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
 
+    var subscriptionTierEnum: AppState.SubscriptionTier {
+        AppState.SubscriptionTier(rawValue: subscriptionTier) ?? .free
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(userId, forKey: .userId)

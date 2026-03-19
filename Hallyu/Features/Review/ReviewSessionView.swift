@@ -4,6 +4,7 @@ struct ReviewSessionView: View {
     @State private var viewModel: ReviewSessionViewModel
     @Environment(\.dismiss) private var dismiss
 
+    // ViewModel created at init time to capture service references
     init(items: [ReviewItem], services: ServiceContainer) {
         _viewModel = State(initialValue: ReviewSessionViewModel(
             items: items,
@@ -87,6 +88,10 @@ struct ReviewSessionView: View {
                     Text(answerText(for: item))
                         .font(.title2)
                         .foregroundStyle(.secondary)
+
+                    Text("Tap to flip back")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
             .frame(height: 280)
@@ -136,6 +141,8 @@ struct ReviewSessionView: View {
                 .foregroundStyle(.secondary)
             }
 
+        }
+        .safeAreaInset(edge: .bottom) {
             // Score bar
             HStack {
                 Label("\(viewModel.correctCount)", systemImage: "checkmark.circle")
@@ -146,7 +153,8 @@ struct ReviewSessionView: View {
             }
             .font(.caption)
             .padding(.horizontal, 32)
-            .padding(.bottom, 8)
+            .padding(.vertical, 8)
+            .background(.bar)
         }
     }
 

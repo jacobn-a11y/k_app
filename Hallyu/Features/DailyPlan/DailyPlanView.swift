@@ -143,16 +143,11 @@ struct DailyPlanView: View {
     // MARK: - Empty State
 
     private var emptyPlanView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "calendar.badge.plus")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No plan available")
-                .font(.headline)
-            Text("Complete onboarding to get started.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
+        ContentUnavailableView(
+            "No Plan Available",
+            systemImage: "calendar.badge.plus",
+            description: Text("Complete onboarding to get started.")
+        )
     }
 
     // MARK: - Data Loading

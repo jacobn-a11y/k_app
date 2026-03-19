@@ -78,6 +78,8 @@ final class ComprehensionCoachViewModel {
             return
         }
 
+        // Resets to .loading regardless of current phase (including .error),
+        // so retrying from the error state works without extra cleanup.
         phase = .loading
 
         let context = ComprehensionContext(
