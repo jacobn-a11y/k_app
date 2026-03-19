@@ -2,20 +2,48 @@ import AVFoundation
 import Foundation
 
 actor AudioService: AudioServiceProtocol {
+    private final class PublicState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _isRecording = false
+        private var _isPlaying = false
+
+        var isRecording: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return _isRecording
+        }
+
+        var isPlaying: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return _isPlaying
+        }
+
+        func setRecording(_ value: Bool) {
+            lock.lock()
+            _isRecording = value
+            lock.unlock()
+        }
+
+        func setPlaying(_ value: Bool) {
+            lock.lock()
+            _isPlaying = value
+            lock.unlock()
+        }
+    }
+
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
     private var recordingURL: URL?
+    private nonisolated let publicState = PublicState()
 
     nonisolated var isRecording: Bool {
-        false // Checked via state in the actor
+        publicState.isRecording
     }
 
     nonisolated var isPlaying: Bool {
-        false
+        publicState.isPlaying
     }
-
-    private var _isRecording: Bool = false
-    private var _isPlaying: Bool = false
 
     nonisolated func startRecording() async throws -> URL {
         try await _startRecording()
@@ -73,7 +101,7 @@ actor AudioService: AudioServiceProtocol {
             ofItemAtPath: url.path
         )
         #endif
-        _isRecording = true
+        publicState.setRecording(true)
 
         return url
     }
@@ -85,7 +113,7 @@ actor AudioService: AudioServiceProtocol {
 
         recorder.stop()
         audioRecorder = nil
-        _isRecording = false
+        publicState.setRecording(false)
 
         return url
     }
@@ -99,13 +127,13 @@ actor AudioService: AudioServiceProtocol {
 
         audioPlayer = try AVAudioPlayer(contentsOf: url)
         audioPlayer?.play()
-        _isPlaying = true
+        publicState.setPlaying(true)
     }
 
     private func _stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
-        _isPlaying = false
+        publicState.setPlaying(false)
     }
 }
 

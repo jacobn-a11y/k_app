@@ -130,7 +130,15 @@ enum HapticType {
 }
 
 struct HapticManager {
+    private static var isHapticFeedbackEnabled: Bool {
+        if UserDefaults.standard.object(forKey: "hapticFeedbackEnabled") == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "hapticFeedbackEnabled")
+    }
+
     static func play(_ type: HapticType) {
+        guard isHapticFeedbackEnabled else { return }
         #if canImport(UIKit)
         switch type {
         case .success:
@@ -159,6 +167,7 @@ struct HapticManager {
     }
 
     static func prepareHaptic(_ type: HapticType) {
+        guard isHapticFeedbackEnabled else { return }
         #if canImport(UIKit)
         switch type {
         case .success, .error, .warning:

@@ -4,6 +4,7 @@ struct SupabaseConfig {
     let projectURL: URL
     let anonKey: String
     let serviceRoleKey: String?
+    let isConfigured: Bool
 
     private static let placeholderProjectURL = URL(string: "https://placeholder.supabase.co")!
     private static let placeholderAnonKey = "placeholder-anon-key"
@@ -33,7 +34,8 @@ struct SupabaseConfig {
         SupabaseConfig(
             projectURL: placeholderProjectURL,
             anonKey: placeholderAnonKey,
-            serviceRoleKey: nil
+            serviceRoleKey: nil,
+            isConfigured: false
         )
     }
 
@@ -83,7 +85,8 @@ struct SupabaseConfig {
         return SupabaseConfig(
             projectURL: projectURL,
             anonKey: anonKey,
-            serviceRoleKey: serviceRoleKey?.isEmpty == true ? nil : serviceRoleKey
+            serviceRoleKey: serviceRoleKey?.isEmpty == true ? nil : serviceRoleKey,
+            isConfigured: true
         )
     }
 
@@ -106,6 +109,12 @@ actor SupabaseClient {
         )
     }
 
+    private func ensureConfigured() throws {
+        guard config.isConfigured else {
+            throw APIError.invalidURL
+        }
+    }
+
     func setAccessToken(_ token: String?) {
         self.accessToken = token
     }
@@ -120,6 +129,7 @@ actor SupabaseClient {
         reminderMinute: Int
     ) async throws {
         guard !deviceToken.isEmpty else { return }
+        try ensureConfigured()
 
         var headers: [String: String] = [:]
         if let token = accessToken {
@@ -158,6 +168,7 @@ actor SupabaseClient {
         query: [URLQueryItem] = [],
         single: Bool = false
     ) async throws -> T {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -180,6 +191,7 @@ actor SupabaseClient {
         into table: String,
         values: T
     ) async throws -> T {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -200,6 +212,7 @@ actor SupabaseClient {
         query: [URLQueryItem],
         values: T
     ) async throws -> T {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -220,6 +233,7 @@ actor SupabaseClient {
         from table: String,
         query: [URLQueryItem]
     ) async throws {
+        try ensureConfigured()
         var headers: [String: String] = [:]
         if let token = accessToken {
             headers["Authorization"] = "Bearer \(token)"
@@ -238,6 +252,7 @@ actor SupabaseClient {
     // MARK: - Auth
 
     func signUp(email: String, password: String) async throws -> AuthResponse {
+        try ensureConfigured()
         let authClient = APIClient(
             baseURL: config.projectURL.appendingPathComponent("auth/v1"),
             defaultHeaders: [
@@ -252,6 +267,7 @@ actor SupabaseClient {
     }
 
     func signIn(email: String, password: String) async throws -> AuthResponse {
+        try ensureConfigured()
         let authClient = APIClient(
             baseURL: config.projectURL.appendingPathComponent("auth/v1"),
             defaultHeaders: [

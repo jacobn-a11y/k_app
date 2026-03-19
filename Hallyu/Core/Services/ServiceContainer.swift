@@ -69,6 +69,9 @@ final class ServiceContainer {
 
     private static func makeProductionAuthService() -> AuthServiceProtocol {
         let config = SupabaseConfig.current
+        guard config.isConfigured else {
+            return UnconfiguredAuthService()
+        }
         let apiClient = APIClient(
             baseURL: config.projectURL,
             defaultHeaders: [
@@ -351,6 +354,33 @@ final class MockSubscriptionService: SubscriptionServiceProtocol, @unchecked Sen
 
     func checkEntitlement(feature: String) -> Bool {
         currentTier != .free
+    }
+}
+
+final class UnconfiguredAuthService: AuthServiceProtocol, @unchecked Sendable {
+    var currentSession: AuthSession? { nil }
+    var isAuthenticated: Bool { false }
+
+    func signInWithApple() async throws -> AuthSession {
+        throw AuthError.networkError
+    }
+
+    func signInWithApple(idToken: String, nonce: String?) async throws -> AuthSession {
+        throw AuthError.networkError
+    }
+
+    func signInWithEmail(email: String, password: String) async throws -> AuthSession {
+        throw AuthError.networkError
+    }
+
+    func signUp(email: String, password: String) async throws -> AuthSession {
+        throw AuthError.networkError
+    }
+
+    func signOut() async throws {}
+
+    func refreshSession() async throws -> AuthSession {
+        throw AuthError.notAuthenticated
     }
 }
 

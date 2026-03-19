@@ -22,6 +22,7 @@ final class MediaChallengeViewModel {
     private(set) var answers: [ChallengeAnswer] = []
     private(set) var report: ChallengeReport?
     private(set) var isLoading: Bool = false
+    private var questionStartedAt: Date = Date()
 
     let claudeService: ClaudeServiceProtocol
     let learnerModel: LearnerModelServiceProtocol
@@ -102,6 +103,7 @@ final class MediaChallengeViewModel {
     }
 
     func completeMediaPlayback() {
+        questionStartedAt = Date()
         phase = .questions
     }
 
@@ -115,10 +117,11 @@ final class MediaChallengeViewModel {
         return Double(currentQuestionIndex) / Double(questions.count)
     }
 
-    func submitAnswer(_ answer: String, responseTime: TimeInterval) {
+    func submitAnswer(_ answer: String) {
         guard currentQuestionIndex < questions.count else { return }
         let question = questions[currentQuestionIndex]
         let isCorrect = answer == question.correctAnswer
+        let responseTime = Date().timeIntervalSince(questionStartedAt)
 
         let result = ChallengeAnswer(
             questionId: question.id,
@@ -128,6 +131,7 @@ final class MediaChallengeViewModel {
         )
         answers.append(result)
         currentQuestionIndex += 1
+        questionStartedAt = Date()
 
         if currentQuestionIndex >= questions.count {
             buildReport()
@@ -601,16 +605,11 @@ struct MediaChallengeView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                // Placeholder for media player
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.18))
-                    .frame(height: 200)
-                    .overlay {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("Media content: \(content.title)")
+                MediaPlayerView(content: content)
+                    .environment(\.subtitleModeOverride, .none)
+                    .frame(maxHeight: 420)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityLabel("Challenge media content: \(content.title)")
 
                 Spacer()
 
@@ -650,7 +649,7 @@ struct MediaChallengeView: View {
                 VStack(spacing: 10) {
                     ForEach(question.options, id: \.self) { option in
                         Button {
-                            viewModel.submitAnswer(option, responseTime: 5.0)
+                            viewModel.submitAnswer(option)
                         } label: {
                             Text(option)
                                 .frame(maxWidth: .infinity)
