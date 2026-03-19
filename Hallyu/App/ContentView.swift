@@ -17,7 +17,7 @@ struct ContentView: View {
                 PlaceholderView(title: "Review")
             }
             Tab("Progress", systemImage: "chart.bar.fill") {
-                PlaceholderView(title: "Progress")
+                ProgressDashboardView()
             }
             Tab("Settings", systemImage: "gearshape.fill") {
                 SettingsView()
