@@ -110,6 +110,12 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
     static let targetCoverageLow: Double = 0.85
     static let targetCoverageHigh: Double = 0.95
     static let targetCoverageCenter: Double = 0.90
+    /// Composite ranking weights for media selection
+    static let coverageWeight: Double = 0.5
+    static let difficultyWeight: Double = 0.3
+    static let topicWeight: Double = 0.2
+    /// Vocabulary accuracy threshold below which a word is considered "weak"
+    static let weakVocabThreshold: Double = 0.65
 
     // MARK: - Plan Generation
 
@@ -242,37 +248,46 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
         let studiedMediaIds = Set(todaySessions.compactMap { $0.mediaContentId })
         let knownWords = knownVocabulary(from: skillMasteries)
         let hasKnownWords = !knownWords.isEmpty
+        let weakDomainWeights = weakDomains(from: skillMasteries)
 
-        // Find media matching the learner's level and compute vocabulary coverage fit.
-        let candidatesWithCoverage = availableMedia
+        let centerDifficulty = (Self.idealDifficultyLow + Self.idealDifficultyHigh) / 2.0
+
+        // Find media matching the learner's level, compute coverage + topic relevance.
+        let candidates = availableMedia
             .filter { !studiedMediaIds.contains($0.id) }
             .filter { media in
                 media.cefrLevel == profile.cefrLevel ||
                 isWithinDifficultyRange(media.difficultyScore)
             }
-            .map { media -> (media: MediaContent, coverage: Double) in
+            .map { media -> (media: MediaContent, coverage: Double, topicScore: Double) in
                 let coverage = hasKnownWords
                     ? KoreanTextAnalyzer.estimateCoverage(text: media.transcriptKr, knownWords: knownWords)
                     : Self.targetCoverageCenter
-                return (media, coverage)
+                let topicScore = topicRelevanceScore(media: media, weakDomainWeights: weakDomainWeights)
+                return (media, coverage, topicScore)
             }
 
-        let preferredBand = candidatesWithCoverage.filter {
+        let preferredBand = candidates.filter {
             $0.coverage >= Self.targetCoverageLow && $0.coverage <= Self.targetCoverageHigh
         }
-        let rankingPool = preferredBand.isEmpty ? candidatesWithCoverage : preferredBand
+        let rankingPool = preferredBand.isEmpty ? candidates : preferredBand
 
+        // Composite score: lower is better (distances are penalties, topic is a bonus subtracted)
         let selectedCandidate = rankingPool.sorted { lhs, rhs in
-            let coverageDistanceL = abs(lhs.coverage - Self.targetCoverageCenter)
-            let coverageDistanceR = abs(rhs.coverage - Self.targetCoverageCenter)
-            if coverageDistanceL != coverageDistanceR {
-                return coverageDistanceL < coverageDistanceR
-            }
+            let coverageDistL = abs(lhs.coverage - Self.targetCoverageCenter)
+            let coverageDistR = abs(rhs.coverage - Self.targetCoverageCenter)
 
-            let centerDifficulty = (Self.idealDifficultyLow + Self.idealDifficultyHigh) / 2.0
-            let difficultyDistanceL = abs(lhs.media.difficultyScore - centerDifficulty)
-            let difficultyDistanceR = abs(rhs.media.difficultyScore - centerDifficulty)
-            return difficultyDistanceL < difficultyDistanceR
+            let difficultyDistL = abs(lhs.media.difficultyScore - centerDifficulty)
+            let difficultyDistR = abs(rhs.media.difficultyScore - centerDifficulty)
+
+            let scoreL = Self.coverageWeight * coverageDistL
+                       + Self.difficultyWeight * difficultyDistL
+                       - Self.topicWeight * lhs.topicScore
+            let scoreR = Self.coverageWeight * coverageDistR
+                       + Self.difficultyWeight * difficultyDistR
+                       - Self.topicWeight * rhs.topicScore
+
+            return scoreL < scoreR
         }.first
 
         guard let selectedCandidate else { return nil }
@@ -287,6 +302,119 @@ final class PlanGeneratorService: PlanGeneratorServiceProtocol, @unchecked Senda
             mediaContentId: selected.id
         )
     }
+
+    // MARK: - Topic-Aware Selection
+
+    /// Identify the learner's weakest vocabulary domains from SkillMastery records.
+    /// Returns a dictionary of domain → weakness weight (higher = more weak words in that domain).
+    private func weakDomains(from skillMasteries: [SkillMastery]) -> [String: Double] {
+        let weakSkills = skillMasteries.filter {
+            ($0.skillType == "vocab_recognition" || $0.skillType == "vocab_production") &&
+            $0.accuracy < Self.weakVocabThreshold &&
+            HangulUtilities.containsKorean($0.skillId)
+        }
+
+        var domainWeights: [String: Double] = [:]
+        for skill in weakSkills {
+            let domains = Self.wordDomains[skill.skillId] ?? []
+            // Weight by how weak: lower accuracy = higher weight
+            let weight = 1.0 - skill.accuracy
+            for domain in domains {
+                domainWeights[domain, default: 0] += weight
+            }
+        }
+
+        return domainWeights
+    }
+
+    /// Score how relevant a media item's tags are to the learner's weak domains.
+    /// Returns 0.0 when no weak domains match, up to 1.0 for strong matches.
+    private func topicRelevanceScore(media: MediaContent, weakDomainWeights: [String: Double]) -> Double {
+        guard !weakDomainWeights.isEmpty else { return 0.0 }
+
+        let totalWeight = media.tags.reduce(0.0) { sum, tag in
+            sum + (weakDomainWeights[tag] ?? 0.0)
+        }
+
+        // Normalize: cap at reasonable max (3.0 total weight ≈ 3 weak words matching)
+        return min(totalWeight / 3.0, 1.0)
+    }
+
+    // MARK: - Word-to-Domain Mapping
+
+    /// Maps common Korean vocabulary to topic domains matching media tag vocabulary.
+    /// Used to bridge SkillMastery (which tracks Korean words) to media tags.
+    /// TODO: Replace with VocabularyItem.mediaDomains lookup when that data is populated via Supabase.
+    static let wordDomains: [String: [String]] = [
+        // Food & Dining
+        "먹다": ["food"], "마시다": ["food", "cafe"], "밥": ["food"],
+        "물": ["food"], "음식": ["food"], "김치": ["food", "culture"],
+        "라면": ["food"], "커피": ["cafe", "food"], "식당": ["food"],
+        "맛있다": ["food"], "맛있겠다": ["food"], "요리사": ["food", "workplace"],
+        "주문하다": ["food", "shopping"], "배고프다": ["food"],
+
+        // Shopping & Market
+        "사다": ["shopping", "market"], "돈": ["shopping"],
+        "가게": ["shopping", "market"], "마트": ["shopping", "market"],
+        "비싸다": ["shopping"], "비싸요": ["shopping"],
+        "싸다": ["shopping", "market"], "싸요": ["shopping", "market"],
+        "원": ["shopping"], "계산하다": ["shopping"],
+        "얼마예요": ["shopping", "market"], "깎다": ["shopping", "bargaining"],
+
+        // Greetings & Social
+        "안녕하세요": ["greeting", "greetings"], "감사합니다": ["greeting"],
+        "죄송합니다": ["greeting"], "만나다": ["greeting", "romance"],
+        "만나요": ["greeting"], "잘": ["greeting"],
+
+        // Family
+        "가족": ["family"], "엄마": ["family"], "아빠": ["family"],
+        "형": ["family"], "동생": ["family"], "부모님": ["family"],
+        "할머니": ["family"], "아들": ["family"], "딸": ["family"],
+
+        // School & Education
+        "학교": ["school", "education"], "학생": ["school", "education"],
+        "선생님": ["school", "education"], "공부": ["school", "education"],
+        "시험": ["school", "education"], "숙제": ["school"],
+        "배우다": ["school", "education"], "교육": ["education"],
+
+        // Workplace
+        "회사": ["workplace"], "일하다": ["workplace"],
+        "직업": ["workplace"], "회사원": ["workplace"],
+
+        // Travel & Transportation
+        "여행": ["travel"], "버스": ["travel", "transportation"],
+        "지하철": ["travel", "transportation"], "택시": ["travel", "transportation"],
+        "비행기": ["travel"], "역": ["travel", "transportation"],
+
+        // Medical & Health
+        "병원": ["medical", "health"], "의사": ["medical", "workplace"],
+        "아프다": ["medical", "health"], "약": ["medical", "health"],
+        "건강": ["health"],
+
+        // Romance & Emotion
+        "사랑": ["romance", "emotional"], "좋아하다": ["romance"],
+        "행복": ["emotional"], "슬프다": ["emotional"],
+        "결혼": ["romance", "family"],
+
+        // Culture & Entertainment
+        "노래": ["music", "culture"], "영화": ["culture"],
+        "드라마": ["culture"], "음악": ["music", "culture"],
+        "문화": ["culture"], "전통": ["culture"],
+        "춤": ["music", "culture"],
+
+        // Weather & Nature
+        "날씨": ["weather"], "비": ["weather"], "눈": ["weather"],
+        "바람": ["weather"], "봄": ["weather", "culture"],
+        "하늘": ["weather"],
+
+        // Daily Life
+        "집": ["daily-life"], "오늘": ["daily-life"], "시간": ["daily-life"],
+        "친구": ["friends"], "사람": ["daily-life"],
+        "운동": ["health", "sports"],
+        "환경": ["environment"], "기술": ["technology"], "경제": ["economy"],
+    ]
+
+    // MARK: - Private Helpers
 
     private func isWithinDifficultyRange(_ score: Double) -> Bool {
         score >= Self.idealDifficultyLow && score <= Self.idealDifficultyHigh

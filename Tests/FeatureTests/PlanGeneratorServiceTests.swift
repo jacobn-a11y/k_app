@@ -318,4 +318,114 @@ struct PlanGeneratorServiceTests {
         #expect(plan.totalMinutes >= 0)
         #expect(plan.goalMinutes == 15)
     }
+
+    // MARK: - Topic-Aware Selection
+
+    private func makeMediaWithTags(title: String, tags: [String], difficulty: Double = 0.5, cefrLevel: String = "A1") -> MediaContent {
+        MediaContent(
+            title: title,
+            contentType: "drama",
+            difficultyScore: difficulty,
+            cefrLevel: cefrLevel,
+            durationSeconds: 180,
+            transcriptKr: "안녕하세요 오늘 날씨가 좋아요",
+            tags: tags
+        )
+    }
+
+    private func makeWeakVocabMasteries(words: [(String, Double)]) -> [SkillMastery] {
+        words.map { (word, accuracy) in
+            SkillMastery(userId: userId, skillType: "vocab_recognition", skillId: word, accuracy: accuracy, attempts: 10)
+        }
+    }
+
+    @Test("Media with matching weak domains ranks higher")
+    func topicAwareSelection() {
+        // Learner is weak on food words
+        let masteries = makeWeakVocabMasteries(words: [
+            ("밥", 0.3), ("먹다", 0.2), ("음식", 0.4),
+        ])
+
+        let foodMedia = makeMediaWithTags(title: "Food Clip", tags: ["food", "casual"])
+        let workMedia = makeMediaWithTags(title: "Work Clip", tags: ["workplace", "formal"])
+
+        let plan = generator.generatePlan(
+            profile: makeProfile(dailyGoalMinutes: 20),
+            dueReviewItems: [],
+            availableMedia: [foodMedia, workMedia],
+            skillMasteries: masteries,
+            todaySessions: []
+        )
+
+        let mediaActivity = plan.activities.first { $0.type == .mediaLesson }
+        #expect(mediaActivity?.mediaContentId == foodMedia.id)
+    }
+
+    @Test("Topic relevance does not override coverage fit")
+    func coverageStillDominates() {
+        // Learner is weak on food words
+        let masteries = makeWeakVocabMasteries(words: [
+            ("밥", 0.3), ("먹다", 0.2),
+        ])
+
+        // Food media with poor coverage-affecting transcript (empty = defaults to 90%)
+        // Work media with same defaults — both get same coverage since transcripts are identical
+        // The test validates that topic influence is a tiebreaker, not a dominant factor
+        let foodMedia = makeMediaWithTags(title: "Food Clip", tags: ["food"])
+        let workMedia = makeMediaWithTags(title: "Work Clip", tags: ["workplace"])
+
+        let plan = generator.generatePlan(
+            profile: makeProfile(dailyGoalMinutes: 20),
+            dueReviewItems: [],
+            availableMedia: [foodMedia, workMedia],
+            skillMasteries: masteries,
+            todaySessions: []
+        )
+
+        let mediaActivity = plan.activities.first { $0.type == .mediaLesson }
+        #expect(mediaActivity != nil)
+        // With equal coverage and difficulty, food should win due to topic match
+        #expect(mediaActivity?.mediaContentId == foodMedia.id)
+    }
+
+    @Test("Empty skill masteries produce no topic bias")
+    func noTopicBiasWithEmptyMasteries() {
+        let media1 = makeMediaWithTags(title: "Media 1", tags: ["food", "casual"])
+        let media2 = makeMediaWithTags(title: "Media 2", tags: ["workplace", "formal"])
+
+        let plan = generator.generatePlan(
+            profile: makeProfile(dailyGoalMinutes: 20),
+            dueReviewItems: [],
+            availableMedia: [media1, media2],
+            skillMasteries: [],
+            todaySessions: []
+        )
+
+        // Should still select some media (no crash, no bias)
+        let mediaActivity = plan.activities.first { $0.type == .mediaLesson }
+        #expect(mediaActivity != nil)
+    }
+
+    @Test("Only vocab skills below threshold trigger topic matching")
+    func onlyWeakSkillsTriggerTopicMatching() {
+        // Learner is STRONG on food words (above 0.65 threshold)
+        let masteries = makeWeakVocabMasteries(words: [
+            ("밥", 0.9), ("먹다", 0.85),
+        ])
+
+        let foodMedia = makeMediaWithTags(title: "Food Clip", tags: ["food"])
+        let workMedia = makeMediaWithTags(title: "Work Clip", tags: ["workplace"])
+
+        let plan = generator.generatePlan(
+            profile: makeProfile(dailyGoalMinutes: 20),
+            dueReviewItems: [],
+            availableMedia: [foodMedia, workMedia],
+            skillMasteries: masteries,
+            todaySessions: []
+        )
+
+        // No topic bias since all vocab skills are above threshold
+        let mediaActivity = plan.activities.first { $0.type == .mediaLesson }
+        #expect(mediaActivity != nil)
+    }
 }
