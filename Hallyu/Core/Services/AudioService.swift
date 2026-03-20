@@ -63,9 +63,13 @@ actor AudioService: AudioServiceProtocol {
 
     // MARK: - Actor-isolated implementations
 
-    private func _startRecording() throws -> URL {
+    private func _startRecording() async throws -> URL {
         #if os(iOS) || os(tvOS) || os(watchOS)
         let audioSession = AVAudioSession.sharedInstance()
+        let permissionGranted = await requestRecordPermission(audioSession)
+        guard permissionGranted else {
+            throw AudioServiceError.permissionDenied
+        }
         try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
         try audioSession.setActive(true)
         #endif
@@ -93,8 +97,12 @@ actor AudioService: AudioServiceProtocol {
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
 
-        audioRecorder = try AVAudioRecorder(url: url, settings: settings)
-        audioRecorder?.record()
+        let recorder = try AVAudioRecorder(url: url, settings: settings)
+        recorder.prepareToRecord()
+        guard recorder.record() else {
+            throw AudioServiceError.recordingFailed
+        }
+        audioRecorder = recorder
         #if os(iOS) || os(tvOS) || os(watchOS)
         try? fileManager.setAttributes(
             [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
@@ -114,6 +122,10 @@ actor AudioService: AudioServiceProtocol {
         recorder.stop()
         audioRecorder = nil
         publicState.setRecording(false)
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
 
         return url
     }
@@ -135,6 +147,16 @@ actor AudioService: AudioServiceProtocol {
         audioPlayer = nil
         publicState.setPlaying(false)
     }
+
+    #if os(iOS) || os(tvOS) || os(watchOS)
+    private func requestRecordPermission(_ audioSession: AVAudioSession) async -> Bool {
+        await withCheckedContinuation { continuation in
+            audioSession.requestRecordPermission { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
+    #endif
 }
 
 enum AudioServiceError: Error, LocalizedError {
