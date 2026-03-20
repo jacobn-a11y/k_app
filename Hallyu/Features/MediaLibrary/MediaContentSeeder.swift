@@ -12,15 +12,33 @@ enum MediaContentSeeder {
 
     /// Seed placeholder media content for development/testing.
     /// Real licensed content is a business operation — these are schema-correct placeholders.
+    /// Also seeds vocabulary/grammar reference data and runs the metadata analysis pipeline.
     static func seedIfNeeded(modelContext: ModelContext) {
         let descriptor = FetchDescriptor<MediaContent>()
         let existingCount = (try? modelContext.fetchCount(descriptor)) ?? 0
         guard existingCount == 0 else { return }
 
+        // Seed reference data first so metadata analysis can cross-reference
+        VocabularySeeder.seedIfNeeded(modelContext: modelContext)
+        GrammarPatternSeeder.seedIfNeeded(modelContext: modelContext)
+
         let allContent = dramaClips + webtoonExcerpts + newsArticles + shortVideoClips + musicClips
         for content in allContent {
             modelContext.insert(content)
         }
+
+        // Run metadata analysis on all seeded content
+        let vocabItems = VocabularySeeder.allItems
+        let grammarPatterns = GrammarPatternSeeder.allPatterns
+        for content in allContent where !content.transcriptKr.isEmpty {
+            let result = MediaMetadataService.analyze(
+                transcript: content.transcriptKr,
+                vocabularyItems: vocabItems,
+                grammarPatterns: grammarPatterns
+            )
+            MediaMetadataService.enrich(content: content, with: result)
+        }
+
         try? modelContext.save()
     }
 

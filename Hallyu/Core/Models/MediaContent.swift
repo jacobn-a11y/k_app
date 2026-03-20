@@ -18,6 +18,7 @@ final class MediaContent: Codable {
     var thumbnailUrl: String
     var culturalNotes: String
     var tags: [String]
+    var metadataStatus: String
     var createdAt: Date
 
     struct TranscriptSegment: Codable, Equatable {
@@ -53,6 +54,7 @@ final class MediaContent: Codable {
         thumbnailUrl: String = "",
         culturalNotes: String = "",
         tags: [String] = [],
+        metadataStatus: String = "pending",
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -70,6 +72,7 @@ final class MediaContent: Codable {
         self.thumbnailUrl = thumbnailUrl
         self.culturalNotes = culturalNotes
         self.tags = tags
+        self.metadataStatus = metadataStatus
         self.createdAt = createdAt
     }
 
@@ -88,6 +91,7 @@ final class MediaContent: Codable {
         case mediaUrl = "media_url"
         case thumbnailUrl = "thumbnail_url"
         case culturalNotes = "cultural_notes"
+        case metadataStatus = "metadata_status"
         case createdAt = "created_at"
     }
 
@@ -108,6 +112,7 @@ final class MediaContent: Codable {
         thumbnailUrl = try container.decodeIfPresent(String.self, forKey: .thumbnailUrl) ?? ""
         culturalNotes = try container.decodeIfPresent(String.self, forKey: .culturalNotes) ?? ""
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        metadataStatus = try container.decodeIfPresent(String.self, forKey: .metadataStatus) ?? "pending"
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
 
@@ -128,6 +133,7 @@ final class MediaContent: Codable {
         try container.encode(thumbnailUrl, forKey: .thumbnailUrl)
         try container.encode(culturalNotes, forKey: .culturalNotes)
         try container.encode(tags, forKey: .tags)
+        try container.encode(metadataStatus, forKey: .metadataStatus)
         try container.encode(createdAt, forKey: .createdAt)
     }
 }
