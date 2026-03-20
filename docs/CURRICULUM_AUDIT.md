@@ -11,8 +11,8 @@ Hallyu has **strong pedagogical infrastructure** but **thin production content**
 | Component | Grade | Production Readiness |
 |-----------|-------|---------------------|
 | Hangul (Jamo) | **A** | Ready |
-| Vocabulary | **F** | Empty |
-| Grammar | **D** | 4 patterns only |
+| Vocabulary | **D-** | 370-word frequency list exists but 0 learnable items |
+| Grammar | **D** | 4 quiz items + 30 detection-only patterns |
 | Media Content | **B-** | Placeholder data |
 | Placement Test | **C+** | Thin item pool |
 | SRS Engine | **B** (engine) / **F** (content) | Engine ready, no cards |
@@ -65,37 +65,48 @@ Syllable assembly rules: CV and CVC patterns defined.
 
 ---
 
-## 2. Vocabulary — Grade: F
+## 2. Vocabulary — Grade: D-
 
-**File:** `Hallyu/Core/Models/VocabularyItem.swift` (95 lines)
+**Files:**
+- `Hallyu/Core/Models/VocabularyItem.swift` (95 lines) — model definition
+- `Hallyu/Core/Utilities/KoreanTextAnalyzer.swift` (lines 26-113) — frequency list for analysis
 
-### Content: 0 seeded vocabulary items
+### Content: 0 learnable vocabulary items, but ~370 words in a frequency list
 
-The `VocabularyItem` model is well-designed (Korean, romanization, English, part of speech, CEFR level, frequency rank, media domains, example sentences, audio URL). However, **no vocabulary data is seeded anywhere in the app**. There is no vocabulary seeder, no JSON data file, no hardcoded word lists.
+The `VocabularyItem` model is well-designed (Korean, romanization, English, part of speech, CEFR level, frequency rank, media domains, example sentences, audio URL). **No `VocabularyItem` instances are seeded** — no vocabulary seeder, no JSON data file, no learnable word cards.
 
-The app relies entirely on Claude API to generate vocabulary at runtime.
+However, `KoreanTextAnalyzer` contains a **~370-word frequency list** used for text difficulty analysis. This list covers ranks 1-403 (with some gaps) and includes:
+- Ranks 1-50: Particles, pronouns, question words (나, 는, 이, 가, 하다, 있다, 왜, 어디...)
+- Ranks 51-100: Common verbs, family, daily life (먹다, 마시다, 친구, 가족, 학교...)
+- Ranks 101-200: Nouns, colors, days, numbers (빨간, 파란, 월요일, 하나, 둘...)
+- Ranks 201-403: Intermediate vocabulary, body parts, occupations, abstract nouns
 
-### What's missing (by standard A1-B2 curriculum expectations)
+**This list is not exposed as learnable content** — it's only used internally by the text analyzer to estimate difficulty scores. The words lack English translations, romanization, example sentences, and part-of-speech tags needed for the `VocabularyItem` model.
 
-| Category | Expected A1 Words | Currently Seeded |
-|----------|-------------------|-----------------|
-| Numbers (1-100, ordinals) | ~30 | 0 |
-| Colors | ~10 | 0 |
-| Time (days, months, clock) | ~30 | 0 |
-| Family members | ~15 | 0 |
-| Body parts | ~20 | 0 |
-| Food & drink | ~40 | 0 |
-| Greetings & phrases | ~20 | 0 |
-| Directions & locations | ~15 | 0 |
-| Common verbs | ~50 | 0 |
-| Common adjectives | ~30 | 0 |
-| **Total A1 minimum** | **~260** | **0** |
+### What's missing vs. curriculum expectations
+
+| Category | Expected A1 Words | In Frequency List | As Learnable Items |
+|----------|-------------------|-------------------|-------------------|
+| Numbers (1-100, ordinals) | ~30 | ~13 (1-10, 100, 1000, 10000) | 0 |
+| Colors | ~10 | 5 (빨간, 파란, 하얀, 검은, 노란) | 0 |
+| Time (days, months, clock) | ~30 | ~14 (days of week, 아침/점심/저녁) | 0 |
+| Family members | ~15 | ~12 (엄마, 아빠, 형, 누나, etc.) | 0 |
+| Body parts | ~20 | ~8 (머리, 얼굴, 코, 귀, 손, 발, 다리, 몸) | 0 |
+| Food & drink | ~40 | ~3 (밥, 물, 음식) | 0 |
+| Greetings & phrases | ~20 | 3 (안녕하세요, 감사합니다, 죄송합니다) | 0 |
+| Common verbs | ~50 | ~45 | 0 |
+| Common adjectives | ~30 | ~15 | 0 |
+| **Total A1 minimum** | **~260** | **~118** | **0** |
 
 For reference, TOPIK I (levels 1-2) expects ~1,500-2,000 words. TOPIK II (levels 3-6) expects ~5,000+.
 
+### Opportunity
+
+The 370-word frequency list is a good starting point but needs to be transformed into `VocabularyItem` instances with translations, romanization, example sentences, and CEFR tagging.
+
 ### Risk
 
-Without offline vocabulary, the app is entirely API-dependent. If Claude is unavailable, users have zero vocabulary content.
+Without offline vocabulary items, the app is entirely API-dependent for vocabulary teaching. If Claude is unavailable, users have zero learnable vocabulary content.
 
 ---
 
@@ -103,9 +114,10 @@ Without offline vocabulary, the app is entirely API-dependent. If Claude is unav
 
 **Files:**
 - `Hallyu/Core/Models/GrammarPattern.swift` (93 lines) — model definition
-- `Hallyu/Features/Feed/FeedCardGenerator.swift` lines 244-248 — only seeded data
+- `Hallyu/Features/Feed/FeedCardGenerator.swift` lines 244-248 — quiz card data
+- `Hallyu/Core/Utilities/KoreanTextAnalyzer.swift` lines 116-147 — detection patterns
 
-### Content: 4 hardcoded grammar patterns
+### Teachable content: 4 hardcoded grammar quiz items
 
 | Pattern | Example | Translation | CEFR | Has Explanation? | Has Common Mistakes? |
 |---------|---------|-------------|------|-----------------|---------------------|
@@ -116,33 +128,49 @@ Without offline vocabulary, the app is entirely API-dependent. If Claude is unav
 
 These exist only as quiz card data in `FeedCardGenerator.makeGrammarSnap()`. No `GrammarPattern` model instances are ever created or persisted.
 
+### Detection patterns: 30 patterns in KoreanTextAnalyzer
+
+The text analyzer has 30 grammar pattern strings used for **difficulty detection only** (not teaching):
+
+| CEFR | Patterns | Count |
+|------|----------|-------|
+| A1 | -이에요/예요, -입니다, -습니다/ㅂ니다, -아/어요, -세요, -고 싶 | 8 |
+| A2 | -을 수 있, -아/어서, -지만, -으면, -고 있, -는데, -을까요, -아/어야 하 | 12 |
+| B1 | -는 것 같, -기 때문에, -도록, -으려고, -더라고요, -잖아요, -거든요 | 7 |
+| B2 | -다면, -더니, -는 바람에 | 3 |
+
+These contain only pattern strings and names — no explanations, examples, or common mistakes. They would need significant enrichment to become teachable grammar content.
+
 ### What's missing vs. CEFR/TOPIK expectations
 
-**A1 (TOPIK I Level 1)** — need ~15-20 patterns, have 1:
-- Subject/topic markers (은/는, 이/가)
+**A1 (TOPIK I Level 1)** — need ~15-20 teachable patterns, have 1 quiz item:
+- Subject/topic markers (은/는, 이/가) — in analyzer, not teachable
 - Object marker (을/를)
 - Location particles (에, 에서)
 - Possessive (의)
-- Copula (이에요/예요)
+- Copula (이에요/예요) — in analyzer, not teachable
 - Negation (안, -지 않다)
-- Want to (-고 싶다) ✓
+- Want to (-고 싶다) ✓ quiz item
 - Can/cannot (-을 수 있다/없다)
-- Present tense (-아/어요) ✓
+- Present tense (-아/어요) ✓ quiz item
 
-**A2 (TOPIK I Level 2)** — need ~15-20 more patterns, have 0:
-- Past tense (-았/었-) — exists in B1 slot, should be A2
-- Future (-을 거예요)
-- Progressive (-고 있다)
-- Honorifics (-세요)
-- Connectives (-고, -지만, -어서)
-- Time markers (-때, -후에, -전에)
+**A2 (TOPIK I Level 2)** — need ~15-20 more patterns, have 0 quiz items:
+- Past tense (-았/었-) — exists in B1 quiz slot, should be A2
+- Future (-을 거예요) — missing entirely
+- Progressive (-고 있다) — in analyzer, not teachable
+- Honorifics (-세요) — in analyzer, not teachable
+- Connectives (-고, -지만, -어서) — in analyzer, not teachable
 
-**B1-B2 (TOPIK II)** — need ~30+ patterns, have 2:
-- Conditional (-으면)
-- Reason (-기 때문에, -니까)
-- Contrast (-(으)ㄴ데) ✓
-- Reported speech (-다고 하다)
-- Passive voice (-되다, -아/어지다)
+**B1-B2 (TOPIK II)** — need ~30+ patterns, have 2 quiz items:
+- Conditional (-으면) — in analyzer, not teachable
+- Reason (-기 때문에) — in analyzer, not teachable
+- Contrast (-(으)ㄴ데) ✓ quiz item
+- Reported speech (-다고 하다) — missing entirely
+- Passive voice (-되다, -아/어지다) — missing entirely
+
+### Opportunity
+
+The 30 analyzer patterns are a skeleton that could be enriched into `GrammarPattern` instances with explanations, examples, and common mistakes.
 
 ### Risk
 
@@ -291,8 +319,10 @@ Content availability by level (items that actually exist in the codebase):
 | Component | Pre-A1 | A1 | A2 | B1 | B2 |
 |-----------|--------|----|----|----|----|
 | Hangul | N/A | N/A | N/A | N/A | N/A |
-| Vocabulary items | 0 | 0 | 0 | 0 | 0 |
-| Grammar patterns | 0 | 1 | 1 | 2 | 0 |
+| Vocabulary (learnable items) | 0 | 0 | 0 | 0 | 0 |
+| Vocabulary (frequency list, analysis only) | 0 | ~120 | ~80 | ~170 | 0 |
+| Grammar (quiz items) | 0 | 1 | 1 | 2 | 0 |
+| Grammar (detection patterns, not teachable) | 0 | 8 | 12 | 7 | 3 |
 | Media content (base) | 0 | 17 | 18 | 13 | 1 |
 | Placement items | 0 | 7 | 5 | 3 | 3 |
 | Cultural facts | 0 | 6 | 6 | 6 | 6 |
@@ -304,9 +334,9 @@ Content availability by level (items that actually exist in the codebase):
 
 ### P0 — Critical (app is non-functional without these)
 
-1. **Seed 500+ vocabulary items** across A1-B2 with frequency ranking, example sentences, and part-of-speech tags. Start with the 260 essential A1 words (numbers, colors, time, family, body parts, food, greetings, verbs, adjectives, directions).
+1. **Convert the 370-word frequency list into learnable `VocabularyItem` instances** with English translations, romanization, example sentences, and CEFR tags. Then expand to 500+ items covering gaps (food, directions, more numbers, months).
 
-2. **Create a grammar pattern database** with 40+ patterns covering A1-B2. Each pattern needs: explanation text, 2-3 example sentences with translations, common mistakes, and formality level. This should populate `GrammarPattern` model instances.
+2. **Enrich the 30 analyzer grammar patterns into teachable `GrammarPattern` instances** with explanation text, 2-3 example sentences with translations, common mistakes, and formality level. Then expand to 40+ patterns covering gaps (reported speech, passive voice, future tense).
 
 3. **Add offline fallback content** for grammar and vocabulary so the app functions without Claude API.
 
@@ -334,8 +364,8 @@ Content availability by level (items that actually exist in the codebase):
 
 Hallyu's architecture is well-thought-out — the data models, SRS engine, adaptive placement test, and media-first lesson flow demonstrate strong pedagogical design. The gap is purely **content**. The app has the engine but almost no fuel:
 
-- **0 vocabulary items** (need 500+ minimum for A1-A2)
-- **4 grammar patterns** (need 40+ minimum for A1-B2)
+- **0 learnable vocabulary items** — a 370-word frequency list exists in the analyzer but isn't exposed as teachable content (need 500+ `VocabularyItem` instances)
+- **4 grammar quiz items** — 30 detection patterns exist in the analyzer but lack explanations/examples (need 40+ teachable `GrammarPattern` instances)
 - **1 B2 media item** (need 10+ for level progression)
 - **18 placement items** (need 30+ for reliable assessment)
 
