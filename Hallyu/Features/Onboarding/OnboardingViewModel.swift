@@ -8,10 +8,13 @@ final class OnboardingViewModel {
     // MARK: - Types
 
     enum Step: Int, CaseIterable {
-        case welcome = 0
-        case experience
-        case goalSetting
-        case firstLesson
+        case hook = 0
+        case promise
+        case firstSound
+        case firstConsonant
+        case firstWord
+        case journeyAhead
+        case personalize
     }
 
     enum KoreanExperience: String, CaseIterable {
@@ -38,6 +41,16 @@ final class OnboardingViewModel {
             case .variety: return "tv.fill"
             }
         }
+
+        var teaser: String {
+            switch self {
+            case .drama: return "Understand what your favorite characters are really saying"
+            case .music: return "Sing along and know every word"
+            case .webtoon: return "Read the originals, not the translations"
+            case .news: return "Get the story straight from the source"
+            case .variety: return "Catch every joke and reaction"
+            }
+        }
     }
 
     enum DailyGoal: Int, CaseIterable {
@@ -60,21 +73,44 @@ final class OnboardingViewModel {
             case .committed: return "Committed"
             }
         }
+
+        var emoji: String {
+            switch self {
+            case .light: return "15"
+            case .moderate: return "20"
+            case .committed: return "30"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .light: return "A few minutes a day adds up fast"
+            case .moderate: return "The sweet spot for steady progress"
+            case .committed: return "You'll be reading subtitles in no time"
+            }
+        }
     }
 
     // MARK: - State
 
-    private(set) var currentStep: Step = .welcome
+    private(set) var currentStep: Step = .hook
     var selectedMediaInterests: Set<MediaInterest> = []
     var selectedExperience: KoreanExperience?
     var selectedGoal: DailyGoal = .light
     private(set) var hasSpokenFirstJamo: Bool = false
+    private(set) var hasLearnedConsonant: Bool = false
+    private(set) var hasBuiltFirstWord: Bool = false
     private(set) var firstLessonMicState: FirstLessonMicState = .idle
     private(set) var firstLessonTranscript: String = ""
     private(set) var firstLessonConfidence: Double = 0
     private(set) var isComplete: Bool = false
     private(set) var shouldShowPlacementTest: Bool = false
     private(set) var placedCEFRLevel: String?
+
+    // Animation state for the hook step
+    var hookAnimationPhase: Int = 0
+    var promiseAnimationPhase: Int = 0
+    var firstWordRevealed: Bool = false
 
     private static let firstLessonConfidenceThreshold: Double = 0.7
     private static let acceptedFirstLessonTranscripts: Set<String> = [
@@ -84,6 +120,24 @@ final class OnboardingViewModel {
         "ㅏ",
         "아!",
         "아아",
+    ]
+
+    private static let acceptedConsonantTranscripts: Set<String> = [
+        "g",
+        "k",
+        "ga",
+        "guh",
+        "그",
+        "ㄱ",
+        "기역",
+    ]
+
+    private static let acceptedFirstWordTranscripts: Set<String> = [
+        "ga",
+        "ka",
+        "gah",
+        "가",
+        "가!",
     ]
 
     enum FirstLessonMicState: Equatable {
@@ -98,35 +152,86 @@ final class OnboardingViewModel {
 
     var canProceed: Bool {
         switch currentStep {
-        case .welcome:
-            return !selectedMediaInterests.isEmpty
-        case .experience:
-            return selectedExperience != nil
-        case .goalSetting:
-            return true
-        case .firstLesson:
+        case .hook:
+            return hookAnimationPhase >= 2
+        case .promise:
+            return promiseAnimationPhase >= 1
+        case .firstSound:
             return hasSpokenFirstJamo
+        case .firstConsonant:
+            return hasLearnedConsonant
+        case .firstWord:
+            return hasBuiltFirstWord
+        case .journeyAhead:
+            return !selectedMediaInterests.isEmpty
+        case .personalize:
+            return selectedExperience != nil
         }
     }
 
     var isFirstStep: Bool {
-        currentStep == .welcome
+        currentStep == .hook
     }
 
     var isLastStep: Bool {
-        currentStep == .firstLesson
+        currentStep == .personalize
     }
 
     var progressFraction: Double {
         Double(currentStep.rawValue + 1) / Double(Step.allCases.count)
     }
 
+    // MARK: - Hook & Promise Content
+
+    static let hookKoreanLine = "사랑해"
+    static let hookEnglishLine = "I love you"
+    static let hookContextLine = "You've heard this a hundred times in K-dramas."
+
+    static let promiseTitle = "In 10 minutes, you'll\nread your first Korean word."
+    static let promiseSubtitle = "Korean has an alphabet, just like English.\nEach letter is a building block."
+
+    // MARK: - First Sound Content
+
+    static let firstSoundCharacter = "ㅏ"
+    static let firstSoundLabel = "ah"
+    static let firstSoundHint = "Like the 'a' in 'father'"
+
+    // MARK: - First Consonant Content
+
+    static let firstConsonantCharacter = "ㄱ"
+    static let firstConsonantLabel = "g"
+    static let firstConsonantHint = "Like the 'g' in 'go'"
+
+    // MARK: - First Word Content
+
+    static let firstWordCharacter = "가"
+    static let firstWordMeaning = "go"
+    static let firstWordBreakdown = "ㄱ + ㅏ"
+
+    // MARK: - Journey Milestones
+
+    struct JourneyMilestone: Identifiable {
+        let id = UUID()
+        let timeframe: String
+        let headline: String
+        let detail: String
+        let icon: String
+    }
+
+    static let journeyMilestones: [JourneyMilestone] = [
+        JourneyMilestone(timeframe: "Today", headline: "Read your first word", detail: "You just did this", icon: "checkmark.circle.fill"),
+        JourneyMilestone(timeframe: "This week", headline: "Read all of Hangul", detail: "40 letters, one building block at a time", icon: "character.book.closed.fill"),
+        JourneyMilestone(timeframe: "Week 2", headline: "Your first K-drama clip", detail: "Watch a real scene with scaffolded support", icon: "play.rectangle.fill"),
+        JourneyMilestone(timeframe: "Month 1", headline: "Follow conversations", detail: "Understand basic dialogue without subtitles", icon: "bubble.left.and.bubble.right.fill"),
+        JourneyMilestone(timeframe: "Month 3", headline: "Consume real media", detail: "News, webtoons, music — in Korean", icon: "star.fill"),
+    ]
+
     // MARK: - Actions
 
     func advance() {
         guard canProceed else { return }
 
-        if currentStep == .experience, selectedExperience == .some {
+        if currentStep == .personalize, selectedExperience == .some {
             shouldShowPlacementTest = true
             return
         }
@@ -142,11 +247,23 @@ final class OnboardingViewModel {
         }
     }
 
+    // MARK: - Hook / Promise
+
+    func advanceHookAnimation() {
+        hookAnimationPhase += 1
+    }
+
+    func advancePromiseAnimation() {
+        promiseAnimationPhase += 1
+    }
+
+    // MARK: - First Sound (ㅏ)
+
     func markFirstJamoSpoken() {
         hasSpokenFirstJamo = true
-        firstLessonTranscript = Self.firstLessonSoundLabel
+        firstLessonTranscript = Self.firstSoundCharacter
         firstLessonConfidence = 1
-        firstLessonMicState = .success("Nice work. You’ve got it.")
+        firstLessonMicState = .success("You just spoke Korean.")
     }
 
     func startFirstLessonRecording(
@@ -199,10 +316,10 @@ final class OnboardingViewModel {
 
             if matchesFirstLessonTarget(transcript: result.transcript, confidence: result.confidence) {
                 hasSpokenFirstJamo = true
-                firstLessonMicState = .success("Great! We heard a clear \(Self.firstLessonSoundLabel).")
+                firstLessonMicState = .success("You just spoke Korean.")
             } else {
                 firstLessonMicState = .error(
-                    "We heard \"\(result.transcript)\" at \(Int(result.confidence * 100))% confidence. Try saying \(Self.firstLessonSoundLabel) again."
+                    "We heard \"\(result.transcript)\" — try saying \"\(Self.firstSoundLabel)\" again."
                 )
             }
         } catch {
@@ -216,6 +333,24 @@ final class OnboardingViewModel {
         firstLessonMicState = .idle
     }
 
+    // MARK: - First Consonant (ㄱ)
+
+    func markConsonantLearned() {
+        hasLearnedConsonant = true
+    }
+
+    // MARK: - First Word (가)
+
+    func revealFirstWord() {
+        firstWordRevealed = true
+    }
+
+    func markFirstWordBuilt() {
+        hasBuiltFirstWord = true
+    }
+
+    // MARK: - Completion
+
     func completeOnboarding() -> OnboardingResult {
         isComplete = true
         return OnboardingResult(
@@ -227,34 +362,44 @@ final class OnboardingViewModel {
         )
     }
 
+    func completePlacementAndFinish(cefrLevel: String) -> OnboardingResult {
+        placedCEFRLevel = cefrLevel
+        shouldShowPlacementTest = false
+        isComplete = true
+        return OnboardingResult(
+            mediaInterests: Array(selectedMediaInterests),
+            experience: selectedExperience ?? .some,
+            dailyGoalMinutes: selectedGoal.rawValue,
+            needsPlacement: true,
+            placedCEFRLevel: cefrLevel
+        )
+    }
+
     func applyPlacementResult(cefrLevel: String) {
         placedCEFRLevel = cefrLevel
         shouldShowPlacementTest = false
-        if let next = Step(rawValue: currentStep.rawValue + 1) {
-            currentStep = next
-        }
     }
 
     func dismissPlacementTest() {
         shouldShowPlacementTest = false
-        if currentStep == .experience,
-           let next = Step(rawValue: currentStep.rawValue + 1) {
-            currentStep = next
-        }
+        // Complete with default level
+        placedCEFRLevel = nil
     }
 
+    // MARK: - Status Helpers
+
     var firstLessonPrompt: String {
-        Self.firstLessonSoundLabel
+        Self.firstSoundCharacter
     }
 
     var firstLessonStatusMessage: String {
         switch firstLessonMicState {
         case .idle:
-            return "Tap Record, say the sound, then stop when you finish."
+            return "Tap to record, say the sound, then tap to stop."
         case .recording:
-            return "Listening now. Say the sound naturally and clearly."
+            return "Listening..."
         case .processing:
-            return "Checking your pronunciation..."
+            return "Checking..."
         case .success(let message):
             return message
         case .error(let message):
@@ -281,6 +426,8 @@ final class OnboardingViewModel {
         if case .processing = firstLessonMicState { return true }
         return false
     }
+
+    // MARK: - Private
 
     private static let firstLessonSoundLabel = "ㅏ"
 
