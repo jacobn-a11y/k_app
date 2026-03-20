@@ -7,132 +7,116 @@ struct OnboardingViewModelTests {
 
     // MARK: - Initial State
 
-    @Test("ViewModel starts at hook step")
+    @Test("ViewModel starts at welcome step")
     func initialState() {
         let vm = OnboardingViewModel()
-        #expect(vm.currentStep == .hook)
+        #expect(vm.currentStep == .welcome)
         #expect(vm.selectedMediaInterests.isEmpty)
         #expect(vm.selectedExperience == nil)
         #expect(vm.selectedGoal == .light)
-        #expect(vm.hasSpokenFirstJamo == false)
-        #expect(vm.hasLearnedConsonant == false)
-        #expect(vm.hasBuiltFirstWord == false)
         #expect(vm.isComplete == false)
         #expect(vm.shouldShowPlacementTest == false)
-        #expect(vm.showcaseReady == false)
-        #expect(vm.previewSeen == false)
+        #expect(vm.micDemoSkipped == false)
+        #expect(vm.micDemoSucceeded == false)
     }
 
     // MARK: - Step Navigation
 
-    @Test("Cannot advance from hook until showcase is ready")
-    func hookRequiresShowcase() {
+    @Test("Can always advance from welcome")
+    func welcomeAlwaysAdvances() {
         let vm = OnboardingViewModel()
-        #expect(vm.canProceed == false)
-        vm.advance()
-        #expect(vm.currentStep == .hook)
-    }
-
-    @Test("Can advance from hook after showcase ready")
-    func hookAdvancesAfterShowcase() {
-        let vm = OnboardingViewModel()
-        vm.markShowcaseReady()
         #expect(vm.canProceed == true)
         vm.advance()
-        #expect(vm.currentStep == .promise)
+        #expect(vm.currentStep == .interests)
     }
 
-    @Test("Can advance from promise after animation")
-    func promiseAdvancesAfterAnimation() {
+    @Test("Cannot advance from interests without selecting at least one")
+    func interestsRequiresSelection() {
         let vm = OnboardingViewModel()
-        advanceTo(vm, step: .promise)
-        #expect(vm.canProceed == false)
-        vm.advancePromiseAnimation()
-        #expect(vm.canProceed == true)
-        vm.advance()
-        #expect(vm.currentStep == .firstSound)
-    }
-
-    @Test("Cannot advance from firstSound without speaking jamo")
-    func firstSoundRequiresJamo() {
-        let vm = OnboardingViewModel()
-        advanceTo(vm, step: .firstSound)
-        #expect(vm.canProceed == false)
-        vm.markFirstJamoSpoken()
-        #expect(vm.canProceed == true)
-        #expect(vm.hasSpokenFirstJamo == true)
-    }
-
-    @Test("Cannot advance from firstConsonant without learning it")
-    func firstConsonantRequiresLearning() {
-        let vm = OnboardingViewModel()
-        advanceTo(vm, step: .firstConsonant)
-        #expect(vm.canProceed == false)
-        vm.markConsonantLearned()
-        #expect(vm.canProceed == true)
-    }
-
-    @Test("Cannot advance from firstWord without building it")
-    func firstWordRequiresBuilding() {
-        let vm = OnboardingViewModel()
-        advanceTo(vm, step: .firstWord)
-        #expect(vm.canProceed == false)
-        vm.revealFirstWord()
-        vm.markFirstWordBuilt()
-        #expect(vm.canProceed == true)
-    }
-
-    @Test("Cannot advance from previewExperience without seeing all cards")
-    func previewRequiresSeen() {
-        let vm = OnboardingViewModel()
-        advanceTo(vm, step: .previewExperience)
-        #expect(vm.canProceed == false)
-        vm.markPreviewSeen()
-        #expect(vm.canProceed == true)
-    }
-
-    @Test("Cannot advance from journeyAhead without selecting interests")
-    func journeyAheadRequiresInterests() {
-        let vm = OnboardingViewModel()
-        advanceTo(vm, step: .journeyAhead)
+        advanceTo(vm, step: .interests)
         #expect(vm.canProceed == false)
         vm.selectedMediaInterests.insert(.drama)
         #expect(vm.canProceed == true)
+        vm.advance()
+        #expect(vm.currentStep == .proficiency)
     }
 
-    @Test("Cannot advance from personalize without selecting experience")
-    func personalizeRequiresExperience() {
+    @Test("Cannot advance from proficiency without selecting experience")
+    func proficiencyRequiresSelection() {
         let vm = OnboardingViewModel()
-        advanceTo(vm, step: .personalize)
+        advanceTo(vm, step: .proficiency)
         #expect(vm.canProceed == false)
         vm.selectedExperience = .none
         #expect(vm.canProceed == true)
+        vm.advance()
+        #expect(vm.currentStep == .dailyGoal)
     }
 
-    @Test("Selecting 'some' experience triggers placement test")
-    func someExperienceTriggerPlacement() {
+    @Test("Can always advance from daily goal")
+    func dailyGoalAlwaysAdvances() {
         let vm = OnboardingViewModel()
-        advanceTo(vm, step: .personalize)
-        vm.selectedExperience = .some
+        advanceTo(vm, step: .dailyGoal)
+        #expect(vm.canProceed == true)
         vm.advance()
-        #expect(vm.shouldShowPlacementTest == true)
-        #expect(vm.currentStep == .personalize)
+        #expect(vm.currentStep == .micDemo)
+    }
+
+    @Test("Can always advance from mic demo (no hard gate)")
+    func micDemoNoHardGate() {
+        let vm = OnboardingViewModel()
+        advanceTo(vm, step: .micDemo)
+        #expect(vm.canProceed == true)
     }
 
     @Test("goBack returns to previous step")
     func goBack() {
         let vm = OnboardingViewModel()
-        advanceTo(vm, step: .promise)
-        #expect(vm.currentStep == .promise)
+        advanceTo(vm, step: .interests)
+        #expect(vm.currentStep == .interests)
         vm.goBack()
-        #expect(vm.currentStep == .hook)
+        #expect(vm.currentStep == .welcome)
     }
 
-    @Test("goBack from hook does nothing")
-    func goBackFromHook() {
+    @Test("goBack from welcome does nothing")
+    func goBackFromWelcome() {
         let vm = OnboardingViewModel()
         vm.goBack()
-        #expect(vm.currentStep == .hook)
+        #expect(vm.currentStep == .welcome)
+    }
+
+    // MARK: - Skip
+
+    @Test("Can skip interests step")
+    func skipInterests() {
+        let vm = OnboardingViewModel()
+        advanceTo(vm, step: .interests)
+        vm.skipCurrentStep()
+        #expect(vm.currentStep == .proficiency)
+    }
+
+    @Test("Can skip proficiency step (defaults to none)")
+    func skipProficiency() {
+        let vm = OnboardingViewModel()
+        advanceTo(vm, step: .proficiency)
+        vm.skipCurrentStep()
+        #expect(vm.selectedExperience == .none)
+        #expect(vm.currentStep == .dailyGoal)
+    }
+
+    @Test("Can skip mic demo step")
+    func skipMicDemo() {
+        let vm = OnboardingViewModel()
+        advanceTo(vm, step: .micDemo)
+        vm.skipCurrentStep()
+        #expect(vm.micDemoSkipped == true)
+    }
+
+    @Test("Cannot skip welcome or daily goal")
+    func cannotSkipWelcomeOrGoal() {
+        let vm = OnboardingViewModel()
+        #expect(vm.canSkipCurrentStep == false)
+        advanceTo(vm, step: .dailyGoal)
+        #expect(vm.canSkipCurrentStep == false)
     }
 
     // MARK: - Progress
@@ -143,12 +127,12 @@ struct OnboardingViewModelTests {
         let initial = vm.progressFraction
         #expect(initial > 0)
 
-        advanceTo(vm, step: .promise)
-        let promiseProgress = vm.progressFraction
-        #expect(promiseProgress > initial)
+        advanceTo(vm, step: .interests)
+        let interestsProgress = vm.progressFraction
+        #expect(interestsProgress > initial)
 
-        advanceTo(vm, step: .firstSound)
-        #expect(vm.progressFraction > promiseProgress)
+        advanceTo(vm, step: .proficiency)
+        #expect(vm.progressFraction > interestsProgress)
     }
 
     @Test("isFirstStep and isLastStep are correct")
@@ -157,7 +141,7 @@ struct OnboardingViewModelTests {
         #expect(vm.isFirstStep == true)
         #expect(vm.isLastStep == false)
 
-        advanceTo(vm, step: .personalize)
+        advanceTo(vm, step: .micDemo)
         #expect(vm.isFirstStep == false)
         #expect(vm.isLastStep == true)
     }
@@ -175,38 +159,32 @@ struct OnboardingViewModelTests {
         #expect(bts != nil)
     }
 
-    @Test("Showcase index cycles through snippets")
-    func showcaseCycling() {
+    // MARK: - Mic Demo
+
+    @Test("Mic demo starts in idle state")
+    func micDemoInitialState() {
         let vm = OnboardingViewModel()
-        let first = vm.currentShowcaseSnippet
-        vm.advanceShowcase()
-        let second = vm.currentShowcaseSnippet
-        #expect(first.id != second.id)
+        #expect(vm.micDemoState == .idle)
+        #expect(vm.micDemoIsRecording == false)
+        #expect(vm.micDemoIsProcessing == false)
+        #expect(vm.micDemoStatusIsSuccess == false)
+        #expect(vm.micDemoStatusIsError == false)
     }
 
-    // MARK: - Preview Cards
-
-    @Test("Preview cards represent different experience types")
-    func previewCards() {
-        let types = Set(OnboardingViewModel.previewCards.map(\.type))
-        #expect(types.contains(.mediaClip))
-        #expect(types.contains(.vocab))
-        #expect(types.contains(.pronunciation))
-        #expect(types.contains(.grammar))
-        #expect(types.contains(.cultural))
+    @Test("Skip mic demo sets skipped flag")
+    func skipMicDemoSetsFlag() {
+        let vm = OnboardingViewModel()
+        vm.skipMicDemo()
+        #expect(vm.micDemoSkipped == true)
     }
 
-    @Test("advancePreviewCard cycles through cards and marks seen")
-    func previewCardAdvance() {
+    @Test("Reset mic demo clears state")
+    func resetMicDemo() {
         let vm = OnboardingViewModel()
-        #expect(vm.previewCardIndex == 0)
-        #expect(vm.previewSeen == false)
-
-        // Advance through all cards
-        for _ in 0..<OnboardingViewModel.previewCards.count {
-            vm.advancePreviewCard()
-        }
-        #expect(vm.previewSeen == true)
+        vm.resetMicDemo()
+        #expect(vm.micDemoTranscript == "")
+        #expect(vm.micDemoConfidence == 0)
+        #expect(vm.micDemoState == .idle)
     }
 
     // MARK: - Completion
@@ -227,6 +205,18 @@ struct OnboardingViewModelTests {
         #expect(vm.isComplete == true)
     }
 
+    @Test("Selecting 'some' experience triggers placement on completion")
+    func someExperienceTriggersPlacement() {
+        let vm = OnboardingViewModel()
+        vm.selectedMediaInterests = [.drama]
+        vm.selectedExperience = .some
+        vm.selectedGoal = .light
+
+        let result = vm.completeOnboarding()
+        #expect(vm.shouldShowPlacementTest == true)
+        #expect(result.needsPlacement == true)
+    }
+
     @Test("completePlacementAndFinish returns level")
     func completePlacementAndFinish() {
         let vm = OnboardingViewModel()
@@ -243,9 +233,8 @@ struct OnboardingViewModelTests {
     @Test("dismissPlacementTest clears flag")
     func dismissPlacement() {
         let vm = OnboardingViewModel()
-        advanceTo(vm, step: .personalize)
         vm.selectedExperience = .some
-        vm.advance()
+        _ = vm.completeOnboarding()
         #expect(vm.shouldShowPlacementTest == true)
         vm.dismissPlacementTest()
         #expect(vm.shouldShowPlacementTest == false)
@@ -266,79 +255,52 @@ struct OnboardingViewModelTests {
         #expect(vm.selectedGoal.rawValue == 15)
     }
 
-    // MARK: - First Sound
+    // MARK: - Analytics
 
-    @Test("markFirstJamoSpoken sets success state")
-    func markFirstJamoSpoken() {
+    @Test("Step completion is tracked in analytics log")
+    func analyticsTracking() {
         let vm = OnboardingViewModel()
-        vm.markFirstJamoSpoken()
-        #expect(vm.hasSpokenFirstJamo == true)
-        #expect(vm.firstLessonStatusIsSuccess == true)
-        #expect(vm.firstLessonConfidence == 1)
+        vm.advance() // welcome -> interests
+        #expect(vm.analyticsLog.contains(.stepCompleted(.welcome)))
+        #expect(vm.analyticsLog.contains(.stepViewed(.interests)))
     }
 
-    @Test("resetFirstLessonMicState clears state")
-    func resetMicState() {
+    @Test("Step skip is tracked in analytics log")
+    func analyticsSkipTracking() {
         let vm = OnboardingViewModel()
-        vm.markFirstJamoSpoken()
-        vm.resetFirstLessonMicState()
-        #expect(vm.firstLessonTranscript == "")
-        #expect(vm.firstLessonConfidence == 0)
-        #expect(vm.firstLessonIsRecording == false)
+        advanceTo(vm, step: .interests)
+        vm.skipCurrentStep()
+        #expect(vm.analyticsLog.contains(.stepSkipped(.interests)))
     }
 
-    // MARK: - First Word
-
-    @Test("revealFirstWord and markFirstWordBuilt work together")
-    func firstWordFlow() {
+    @Test("Onboarding completion is tracked")
+    func analyticsCompletion() {
         let vm = OnboardingViewModel()
-        #expect(vm.firstWordRevealed == false)
-        #expect(vm.hasBuiltFirstWord == false)
-        vm.revealFirstWord()
-        #expect(vm.firstWordRevealed == true)
-        vm.markFirstWordBuilt()
-        #expect(vm.hasBuiltFirstWord == true)
-    }
-
-    // MARK: - Journey Milestones
-
-    @Test("Journey milestones are populated with sample Korean")
-    func journeyMilestones() {
-        #expect(OnboardingViewModel.journeyMilestones.count == 5)
-        #expect(OnboardingViewModel.journeyMilestones.first?.timeframe == "Today")
-        #expect(OnboardingViewModel.journeyMilestones.first?.sampleKorean == "가")
+        vm.selectedMediaInterests = [.drama]
+        vm.selectedExperience = .none
+        _ = vm.completeOnboarding()
+        let hasCompletion = vm.analyticsLog.contains(where: {
+            if case .onboardingCompleted = $0 { return true }
+            return false
+        })
+        #expect(hasCompletion == true)
     }
 
     // MARK: - Helpers
 
     private func advanceTo(_ vm: OnboardingViewModel, step: OnboardingViewModel.Step) {
-        if vm.currentStep == .hook && step.rawValue > OnboardingViewModel.Step.hook.rawValue {
-            vm.markShowcaseReady()
+        if vm.currentStep == .welcome && step.rawValue > OnboardingViewModel.Step.welcome.rawValue {
             vm.advance()
         }
-        if vm.currentStep == .promise && step.rawValue > OnboardingViewModel.Step.promise.rawValue {
-            vm.advancePromiseAnimation()
-            vm.advance()
-        }
-        if vm.currentStep == .firstSound && step.rawValue > OnboardingViewModel.Step.firstSound.rawValue {
-            vm.markFirstJamoSpoken()
-            vm.advance()
-        }
-        if vm.currentStep == .firstConsonant && step.rawValue > OnboardingViewModel.Step.firstConsonant.rawValue {
-            vm.markConsonantLearned()
-            vm.advance()
-        }
-        if vm.currentStep == .firstWord && step.rawValue > OnboardingViewModel.Step.firstWord.rawValue {
-            vm.revealFirstWord()
-            vm.markFirstWordBuilt()
-            vm.advance()
-        }
-        if vm.currentStep == .previewExperience && step.rawValue > OnboardingViewModel.Step.previewExperience.rawValue {
-            vm.markPreviewSeen()
-            vm.advance()
-        }
-        if vm.currentStep == .journeyAhead && step.rawValue > OnboardingViewModel.Step.journeyAhead.rawValue {
+        if vm.currentStep == .interests && step.rawValue > OnboardingViewModel.Step.interests.rawValue {
             vm.selectedMediaInterests.insert(.drama)
+            vm.advance()
+        }
+        if vm.currentStep == .proficiency && step.rawValue > OnboardingViewModel.Step.proficiency.rawValue {
+            vm.selectedExperience = .none
+            vm.advance()
+        }
+        if vm.currentStep == .dailyGoal && step.rawValue > OnboardingViewModel.Step.dailyGoal.rawValue {
             vm.advance()
         }
     }

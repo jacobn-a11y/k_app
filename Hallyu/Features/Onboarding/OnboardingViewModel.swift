@@ -8,14 +8,11 @@ final class OnboardingViewModel {
     // MARK: - Types
 
     enum Step: Int, CaseIterable {
-        case hook = 0           // Cinematic media showcase — the "wow"
-        case promise            // "In 10 minutes you'll read Korean"
-        case firstSound         // Learn ㅏ (ah) with mic
-        case firstConsonant     // Learn ㄱ (g) with mnemonic
-        case firstWord          // Combine ㄱ+ㅏ = 가 ("go!")
-        case previewExperience  // Mini-demo of actual feed cards
-        case journeyAhead       // Timeline + media interests
-        case personalize        // Experience + goal — fast finish
+        case welcome = 0        // Static hook — one showcase snippet + value prop
+        case interests          // "What do you want to learn?" multi-tap
+        case proficiency        // "What's your Korean level?"
+        case dailyGoal          // Pick daily goal
+        case micDemo            // Optional voice demo — fully skippable
     }
 
     enum KoreanExperience: String, CaseIterable {
@@ -86,7 +83,6 @@ final class OnboardingViewModel {
 
     // MARK: - Showcase Content
 
-    /// A real Korean media snippet used in the cinematic hook
     struct ShowcaseSnippet: Identifiable, Equatable {
         let id = UUID()
         let korean: String
@@ -126,7 +122,6 @@ final class OnboardingViewModel {
 
     /// Curated real Korean media lines — the "wow" content
     static let showcaseSnippets: [ShowcaseSnippet] = [
-        // K-Drama iconic lines
         ShowcaseSnippet(
             korean: "사랑해",
             english: "I love you",
@@ -148,8 +143,6 @@ final class OnboardingViewModel {
             category: .drama,
             contextNote: "The line that made millions cry"
         ),
-
-        // Squid Game — viral
         ShowcaseSnippet(
             korean: "무궁화 꽃이 피었습니다",
             english: "The hibiscus flower has bloomed",
@@ -157,8 +150,6 @@ final class OnboardingViewModel {
             category: .viral,
             contextNote: "You know this one. 1.65 billion hours watched."
         ),
-
-        // K-Pop lyrics
         ShowcaseSnippet(
             korean: "우리는 전생에도 영원히 함께니까",
             english: "Because we're together forever, even in past lives",
@@ -173,8 +164,6 @@ final class OnboardingViewModel {
             category: .music,
             contextNote: "Banned from Korean elementary schools — too catchy"
         ),
-
-        // Webtoon
         ShowcaseSnippet(
             korean: "포기하지 마. 끝까지 가봐",
             english: "Don't give up. See it through to the end.",
@@ -182,8 +171,6 @@ final class OnboardingViewModel {
             category: .webtoon,
             contextNote: "The manhwa that became a global phenomenon"
         ),
-
-        // News
         ShowcaseSnippet(
             korean: "한국 영화, 세계를 사로잡다",
             english: "Korean cinema captivates the world",
@@ -193,138 +180,91 @@ final class OnboardingViewModel {
         ),
     ]
 
-    /// Preview feed cards — showing the user what the actual app experience feels like
-    struct PreviewCard: Identifiable, Equatable {
-        let id = UUID()
-        let type: PreviewCardType
-        let korean: String
-        let english: String
-        let detail: String
-    }
-
-    enum PreviewCardType: String, Equatable {
-        case mediaClip = "Watch & Learn"
-        case vocab = "Vocabulary"
-        case pronunciation = "Pronunciation"
-        case grammar = "Grammar"
-        case cultural = "Culture"
-
-        var iconName: String {
-            switch self {
-            case .mediaClip: return "play.rectangle.fill"
-            case .vocab: return "character.book.closed.fill"
-            case .pronunciation: return "mic.fill"
-            case .grammar: return "text.alignleft"
-            case .cultural: return "globe.asia.australia.fill"
-            }
-        }
-    }
-
-    static let previewCards: [PreviewCard] = [
-        PreviewCard(
-            type: .mediaClip,
-            korean: "커피 주세요",
-            english: "Coffee please",
-            detail: "Watch a real K-drama scene, tap any word to learn it"
-        ),
-        PreviewCard(
-            type: .vocab,
-            korean: "감사합니다",
-            english: "Thank you",
-            detail: "Flashcards powered by spaced repetition — you'll never forget"
-        ),
-        PreviewCard(
-            type: .pronunciation,
-            korean: "안녕하세요",
-            english: "Hello",
-            detail: "Record yourself, get instant feedback on your accent"
-        ),
-        PreviewCard(
-            type: .grammar,
-            korean: "저는 학생이에요",
-            english: "I am a student",
-            detail: "Grammar patterns taught through real dialogue, not textbooks"
-        ),
-        PreviewCard(
-            type: .cultural,
-            korean: "밥 먹었어?",
-            english: "Have you eaten?",
-            detail: "Not about food — it means 'How are you?' in Korean culture"
-        ),
-    ]
-
     // MARK: - State
 
-    private(set) var currentStep: Step = .hook
+    private(set) var currentStep: Step = .welcome
     var selectedMediaInterests: Set<MediaInterest> = []
     var selectedExperience: KoreanExperience?
     var selectedGoal: DailyGoal = .light
-    private(set) var hasSpokenFirstJamo: Bool = false
-    private(set) var hasLearnedConsonant: Bool = false
-    private(set) var hasBuiltFirstWord: Bool = false
-    private(set) var firstLessonMicState: FirstLessonMicState = .idle
-    private(set) var firstLessonTranscript: String = ""
-    private(set) var firstLessonConfidence: Double = 0
     private(set) var isComplete: Bool = false
     private(set) var shouldShowPlacementTest: Bool = false
     private(set) var placedCEFRLevel: String?
 
-    // Showcase animation state
-    var showcaseIndex: Int = 0
-    var showcaseReady: Bool = false
+    // Mic demo state
+    private(set) var micDemoState: MicDemoState = .idle
+    private(set) var micDemoTranscript: String = ""
+    private(set) var micDemoConfidence: Double = 0
+    private(set) var micDemoSkipped: Bool = false
+    private(set) var micDemoSucceeded: Bool = false
 
-    // Promise animation
-    var promiseAnimationPhase: Int = 0
+    // Welcome step — show a random snippet, no animation gate
+    var showcaseSnippetIndex: Int = 0
 
-    // First word
-    var firstWordRevealed: Bool = false
+    // Progress persistence
+    private static let persistedStepKey = "onboarding.lastCompletedStep"
+    private static let persistedInterestsKey = "onboarding.interests"
+    private static let persistedExperienceKey = "onboarding.experience"
+    private static let persistedGoalKey = "onboarding.goal"
 
-    // Preview experience
-    var previewCardIndex: Int = 0
-    var previewSeen: Bool = false
-
-    private static let firstLessonConfidenceThreshold: Double = 0.7
-    private static let acceptedFirstLessonTranscripts: Set<String> = [
-        "a", "ah", "아", "ㅏ", "아!", "아아",
-    ]
-
-    enum FirstLessonMicState: Equatable {
+    enum MicDemoState: Equatable {
         case idle
         case recording
         case processing
         case success(String)
         case error(String)
+        case unavailable(String)
     }
+
+    private static let micDemoConfidenceThreshold: Double = 0.7
+    private static let acceptedMicDemoTranscripts: Set<String> = [
+        "a", "ah", "아", "ㅏ", "아!", "아아",
+    ]
+
+    // MARK: - Analytics
+
+    enum OnboardingEvent: Equatable {
+        case stepViewed(Step)
+        case stepCompleted(Step)
+        case stepSkipped(Step)
+        case micPermissionDenied
+        case micUnavailable
+        case micRecordingError(String)
+        case micSuccess
+        case placementTestShown
+        case placementTestCompleted(String)
+        case onboardingCompleted(totalSteps: Int)
+        case onboardingResumed(fromStep: Step)
+    }
+
+    private(set) var analyticsLog: [OnboardingEvent] = []
 
     // MARK: - Computed
 
+    /// Continue button is always enabled. No hard gates.
+    /// For interests step, require at least one selection.
+    /// For proficiency, require a selection.
+    /// Everything else: always proceed.
     var canProceed: Bool {
         switch currentStep {
-        case .hook:
-            return showcaseReady
-        case .promise:
-            return promiseAnimationPhase >= 1
-        case .firstSound:
-            return hasSpokenFirstJamo
-        case .firstConsonant:
-            return hasLearnedConsonant
-        case .firstWord:
-            return hasBuiltFirstWord
-        case .previewExperience:
-            return previewSeen
-        case .journeyAhead:
+        case .welcome:
+            return true
+        case .interests:
             return !selectedMediaInterests.isEmpty
-        case .personalize:
+        case .proficiency:
             return selectedExperience != nil
+        case .dailyGoal:
+            return true
+        case .micDemo:
+            return true
         }
     }
 
     var isFirstStep: Bool {
-        currentStep == .hook
+        currentStep == .welcome
     }
 
     var isLastStep: Bool {
-        currentStep == .personalize
+        currentStep == .micDemo
     }
 
     var progressFraction: Double {
@@ -332,59 +272,31 @@ final class OnboardingViewModel {
     }
 
     var currentShowcaseSnippet: ShowcaseSnippet {
-        let idx = showcaseIndex % Self.showcaseSnippets.count
+        let idx = showcaseSnippetIndex % Self.showcaseSnippets.count
         return Self.showcaseSnippets[idx]
-    }
-
-    var currentPreviewCard: PreviewCard {
-        let idx = previewCardIndex % Self.previewCards.count
-        return Self.previewCards[idx]
     }
 
     // MARK: - Static Content
 
-    static let firstSoundCharacter = "ㅏ"
-    static let firstSoundLabel = "ah"
-    static let firstSoundHint = "Like the 'a' in 'father'"
-
-    static let firstConsonantCharacter = "ㄱ"
-    static let firstConsonantLabel = "g"
-    static let firstConsonantHint = "Like the 'g' in 'go'"
-
-    static let firstWordCharacter = "가"
-    static let firstWordMeaning = "go"
-
-    // MARK: - Journey Milestones
-
-    struct JourneyMilestone: Identifiable {
-        let id = UUID()
-        let timeframe: String
-        let headline: String
-        let detail: String
-        let icon: String
-        let sampleKorean: String?
-    }
-
-    static let journeyMilestones: [JourneyMilestone] = [
-        JourneyMilestone(timeframe: "Today", headline: "Read your first word", detail: "가 — you just did this", icon: "checkmark.circle.fill", sampleKorean: "가"),
-        JourneyMilestone(timeframe: "This week", headline: "Read all of Hangul", detail: "40 letters, one building block at a time", icon: "character.book.closed.fill", sampleKorean: "한글"),
-        JourneyMilestone(timeframe: "Week 2", headline: "Your first K-drama clip", detail: "Real scenes with scaffolded support", icon: "play.rectangle.fill", sampleKorean: "커피 주세요"),
-        JourneyMilestone(timeframe: "Month 1", headline: "Follow conversations", detail: "Understand basic dialogue", icon: "bubble.left.and.bubble.right.fill", sampleKorean: "오늘 날씨가 좋아요"),
-        JourneyMilestone(timeframe: "Month 3", headline: "Consume real media", detail: "News, webtoons, music — in Korean", icon: "star.fill", sampleKorean: "세계를 사로잡다"),
-    ]
+    static let micDemoCharacter = "ㅏ"
+    static let micDemoLabel = "ah"
+    static let micDemoHint = "Like the 'a' in 'father'"
 
     // MARK: - Actions
 
     func advance() {
         guard canProceed else { return }
 
-        if currentStep == .personalize, selectedExperience == .some {
-            shouldShowPlacementTest = true
+        trackEvent(.stepCompleted(currentStep))
+        persistProgress()
+
+        if isLastStep {
             return
         }
 
         if let next = Step(rawValue: currentStep.rawValue + 1) {
             currentStep = next
+            trackEvent(.stepViewed(next))
         }
     }
 
@@ -394,130 +306,175 @@ final class OnboardingViewModel {
         }
     }
 
-    // MARK: - Showcase (Hook)
+    func skipCurrentStep() {
+        trackEvent(.stepSkipped(currentStep))
 
-    func advanceShowcase() {
-        showcaseIndex += 1
+        switch currentStep {
+        case .interests:
+            // Allow skipping — will use default interests
+            break
+        case .proficiency:
+            // Default to fresh starter
+            if selectedExperience == nil {
+                selectedExperience = .none
+            }
+        case .micDemo:
+            micDemoSkipped = true
+        default:
+            break
+        }
+
+        persistProgress()
+
+        if let next = Step(rawValue: currentStep.rawValue + 1) {
+            currentStep = next
+            trackEvent(.stepViewed(next))
+        }
     }
 
-    func markShowcaseReady() {
-        showcaseReady = true
+    /// Whether the current step can be skipped
+    var canSkipCurrentStep: Bool {
+        switch currentStep {
+        case .welcome:
+            return false // First step, just tap Continue
+        case .interests:
+            return true
+        case .proficiency:
+            return true
+        case .dailyGoal:
+            return false // Already has a default, Continue always works
+        case .micDemo:
+            return true
+        }
     }
 
-    // MARK: - Promise
+    // MARK: - Mic Demo
 
-    func advancePromiseAnimation() {
-        promiseAnimationPhase += 1
-    }
-
-    // MARK: - First Sound (ㅏ)
-
-    func markFirstJamoSpoken() {
-        hasSpokenFirstJamo = true
-        firstLessonTranscript = Self.firstSoundCharacter
-        firstLessonConfidence = 1
-        firstLessonMicState = .success("You just spoke Korean.")
-    }
-
-    func startFirstLessonRecording(
+    func startMicDemo(
         audioService: AudioServiceProtocol,
         speechRecognition: SpeechRecognitionServiceProtocol
     ) async {
-        switch firstLessonMicState {
-        case .idle, .error, .success:
+        switch micDemoState {
+        case .idle, .error, .success, .unavailable:
             break
         case .recording, .processing:
             return
         }
 
-        firstLessonTranscript = ""
-        firstLessonConfidence = 0
+        micDemoTranscript = ""
+        micDemoConfidence = 0
 
         guard speechRecognition.isAvailable else {
-            firstLessonMicState = .error("Speech recognition is unavailable on this device.")
+            micDemoState = .unavailable("Voice isn't available on this device — no worries, you can use it later.")
+            trackEvent(.micUnavailable)
             return
         }
 
         let authorized = await speechRecognition.requestAuthorization()
         guard authorized else {
-            firstLessonMicState = .error("Microphone access is needed to check your pronunciation.")
+            micDemoState = .unavailable("Mic access was declined — you can enable it later in Settings.")
+            trackEvent(.micPermissionDenied)
             return
         }
 
         do {
             _ = try await audioService.startRecording()
-            firstLessonMicState = .recording
+            micDemoState = .recording
         } catch {
-            firstLessonMicState = .error("Could not start recording: \(error.localizedDescription)")
+            micDemoState = .error("Couldn't start recording. You can try voice later in lessons.")
+            trackEvent(.micRecordingError(error.localizedDescription))
         }
     }
 
-    func stopFirstLessonRecording(
+    func stopMicDemo(
         audioService: AudioServiceProtocol,
         speechRecognition: SpeechRecognitionServiceProtocol
     ) async {
-        guard case .recording = firstLessonMicState else { return }
-        firstLessonMicState = .processing
+        guard case .recording = micDemoState else { return }
+        micDemoState = .processing
 
         do {
             let audioURL = try await audioService.stopRecording()
             let result = try await speechRecognition.recognizeSpeech(from: audioURL)
-            firstLessonTranscript = result.transcript
-            firstLessonConfidence = result.confidence
+            micDemoTranscript = result.transcript
+            micDemoConfidence = result.confidence
 
-            if matchesFirstLessonTarget(transcript: result.transcript, confidence: result.confidence) {
-                hasSpokenFirstJamo = true
-                firstLessonMicState = .success("You just spoke Korean.")
+            if matchesMicDemoTarget(transcript: result.transcript, confidence: result.confidence) {
+                micDemoSucceeded = true
+                micDemoState = .success("You just spoke Korean!")
+                trackEvent(.micSuccess)
             } else {
-                firstLessonMicState = .error(
-                    "We heard \"\(result.transcript)\" — try saying \"\(Self.firstSoundLabel)\" again."
+                micDemoState = .error(
+                    "We heard \"\(result.transcript)\" — try saying \"\(Self.micDemoLabel)\" again, or skip for now."
                 )
             }
         } catch {
-            firstLessonMicState = .error("We couldn't check that recording: \(error.localizedDescription)")
+            micDemoState = .error("Couldn't process that — you can try voice later in lessons.")
+            trackEvent(.micRecordingError(error.localizedDescription))
         }
     }
 
-    func resetFirstLessonMicState() {
-        firstLessonTranscript = ""
-        firstLessonConfidence = 0
-        firstLessonMicState = .idle
+    func resetMicDemo() {
+        micDemoTranscript = ""
+        micDemoConfidence = 0
+        micDemoState = .idle
     }
 
-    // MARK: - First Consonant (ㄱ)
-
-    func markConsonantLearned() {
-        hasLearnedConsonant = true
+    func skipMicDemo() {
+        micDemoSkipped = true
+        trackEvent(.stepSkipped(.micDemo))
     }
 
-    // MARK: - First Word (가)
+    // MARK: - Mic Demo Status Helpers
 
-    func revealFirstWord() {
-        firstWordRevealed = true
-    }
-
-    func markFirstWordBuilt() {
-        hasBuiltFirstWord = true
-    }
-
-    // MARK: - Preview Experience
-
-    func advancePreviewCard() {
-        if previewCardIndex < Self.previewCards.count - 1 {
-            previewCardIndex += 1
-        } else {
-            previewSeen = true
+    var micDemoStatusMessage: String {
+        switch micDemoState {
+        case .idle: return "Tap the mic, say the sound, then tap to stop."
+        case .recording: return "Listening..."
+        case .processing: return "Checking..."
+        case .success(let msg): return msg
+        case .error(let msg): return msg
+        case .unavailable(let msg): return msg
         }
     }
 
-    func markPreviewSeen() {
-        previewSeen = true
+    var micDemoStatusIsError: Bool {
+        if case .error = micDemoState { return true }
+        return false
+    }
+
+    var micDemoStatusIsSuccess: Bool {
+        if case .success = micDemoState { return true }
+        return false
+    }
+
+    var micDemoIsRecording: Bool {
+        if case .recording = micDemoState { return true }
+        return false
+    }
+
+    var micDemoIsProcessing: Bool {
+        if case .processing = micDemoState { return true }
+        return false
+    }
+
+    var micDemoIsUnavailable: Bool {
+        if case .unavailable = micDemoState { return true }
+        return false
     }
 
     // MARK: - Completion
 
     func completeOnboarding() -> OnboardingResult {
         isComplete = true
+
+        if selectedExperience == .some {
+            shouldShowPlacementTest = true
+        }
+
+        trackEvent(.onboardingCompleted(totalSteps: Step.allCases.count))
+        clearPersistedProgress()
+
         return OnboardingResult(
             mediaInterests: Array(selectedMediaInterests),
             experience: selectedExperience ?? .none,
@@ -531,6 +488,8 @@ final class OnboardingViewModel {
         placedCEFRLevel = cefrLevel
         shouldShowPlacementTest = false
         isComplete = true
+        trackEvent(.placementTestCompleted(cefrLevel))
+        clearPersistedProgress()
         return OnboardingResult(
             mediaInterests: Array(selectedMediaInterests),
             experience: selectedExperience ?? .some,
@@ -550,46 +509,67 @@ final class OnboardingViewModel {
         placedCEFRLevel = nil
     }
 
-    // MARK: - Status Helpers
+    // MARK: - Progress Persistence
 
-    var firstLessonPrompt: String { Self.firstSoundCharacter }
+    func persistProgress() {
+        UserDefaults.standard.set(currentStep.rawValue, forKey: Self.persistedStepKey)
+        if !selectedMediaInterests.isEmpty {
+            let interests = selectedMediaInterests.map(\.rawValue)
+            UserDefaults.standard.set(interests, forKey: Self.persistedInterestsKey)
+        }
+        if let experience = selectedExperience {
+            UserDefaults.standard.set(experience.rawValue, forKey: Self.persistedExperienceKey)
+        }
+        UserDefaults.standard.set(selectedGoal.rawValue, forKey: Self.persistedGoalKey)
+    }
 
-    var firstLessonStatusMessage: String {
-        switch firstLessonMicState {
-        case .idle: return "Tap to record, say the sound, then tap to stop."
-        case .recording: return "Listening..."
-        case .processing: return "Checking..."
-        case .success(let msg): return msg
-        case .error(let msg): return msg
+    func restoreProgress() {
+        let lastStep = UserDefaults.standard.integer(forKey: Self.persistedStepKey)
+        if lastStep > 0, let step = Step(rawValue: lastStep) {
+            // Resume from the completed step (go to next)
+            if let next = Step(rawValue: step.rawValue + 1) {
+                currentStep = next
+                trackEvent(.onboardingResumed(fromStep: next))
+            } else {
+                currentStep = step
+                trackEvent(.onboardingResumed(fromStep: step))
+            }
+        }
+
+        if let savedInterests = UserDefaults.standard.stringArray(forKey: Self.persistedInterestsKey) {
+            selectedMediaInterests = Set(savedInterests.compactMap { MediaInterest(rawValue: $0) })
+        }
+
+        if let savedExperience = UserDefaults.standard.string(forKey: Self.persistedExperienceKey),
+           let experience = KoreanExperience(rawValue: savedExperience) {
+            selectedExperience = experience
+        }
+
+        if let savedGoal = UserDefaults.standard.object(forKey: Self.persistedGoalKey) as? Int,
+           let goal = DailyGoal(rawValue: savedGoal) {
+            selectedGoal = goal
         }
     }
 
-    var firstLessonStatusIsError: Bool {
-        if case .error = firstLessonMicState { return true }
-        return false
+    private func clearPersistedProgress() {
+        UserDefaults.standard.removeObject(forKey: Self.persistedStepKey)
+        UserDefaults.standard.removeObject(forKey: Self.persistedInterestsKey)
+        UserDefaults.standard.removeObject(forKey: Self.persistedExperienceKey)
+        UserDefaults.standard.removeObject(forKey: Self.persistedGoalKey)
     }
 
-    var firstLessonStatusIsSuccess: Bool {
-        if case .success = firstLessonMicState { return true }
-        return false
-    }
+    // MARK: - Analytics
 
-    var firstLessonIsRecording: Bool {
-        if case .recording = firstLessonMicState { return true }
-        return false
-    }
-
-    var firstLessonIsProcessing: Bool {
-        if case .processing = firstLessonMicState { return true }
-        return false
+    private func trackEvent(_ event: OnboardingEvent) {
+        analyticsLog.append(event)
     }
 
     // MARK: - Private
 
-    private func matchesFirstLessonTarget(transcript: String, confidence: Double) -> Bool {
-        guard confidence >= Self.firstLessonConfidenceThreshold else { return false }
+    private func matchesMicDemoTarget(transcript: String, confidence: Double) -> Bool {
+        guard confidence >= Self.micDemoConfidenceThreshold else { return false }
         let normalized = Self.normalizeTranscript(transcript)
-        return Self.acceptedFirstLessonTranscripts.contains(normalized)
+        return Self.acceptedMicDemoTranscripts.contains(normalized)
     }
 
     private static func normalizeTranscript(_ transcript: String) -> String {
